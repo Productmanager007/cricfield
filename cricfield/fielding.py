@@ -60,6 +60,16 @@ BUCKETS = ("keeper", "outfield", "unknown")
 CATCH_MODAL_MIN = 3
 CATCH_MODAL_MARGIN = 2
 
+# How field time is normalised when a squad lists more than eleven names.
+# Like CREDIT_SHARE, this is an assumption, exposed so it can be argued with
+# and switched off. See the field_time docstring for what it does and does not
+# fix. "drop-and-scale" applies both steps; "drop" applies only the
+# evidence-backed removal; "none" reproduces the pre-normalisation behaviour.
+FIELD_TIME_NORMALISATION = "drop-and-scale"
+
+# A fielding side is eleven players. This is a rule of cricket, not a tunable.
+FIELDERS_PER_SIDE = 11
+
 
 def _split_credit(kind: str, fielders: list[str]) -> dict[str, float]:
     """Fraction of the total wicket value going to each named fielder."""
@@ -128,16 +138,78 @@ def credit_dismissals(
     return pd.DataFrame(rows)
 
 
+def _appeared_in_match(deliveries: pd.DataFrame) -> set[tuple]:
+    """
+    (match_id, player) for everyone who took a visible part in that match.
+
+    Visible means batting, bowling, backing up at the non-striker's end, or
+    being credited on a dismissal. A named squad member who does none of these
+    almost certainly did not take the field.
+    """
+    seen: set[tuple] = set()
+    for col in ("batter", "bowler", "non_striker"):
+        pairs = deliveries.loc[deliveries[col].notna(), ["match_id", col]]
+        seen.update(map(tuple, pairs.values))
+
+    w = deliveries.loc[deliveries["wicket"], ["match_id", "fielders"]]
+    for match_id, fielders in w.itertuples(index=False):
+        for f in fielders or []:
+            seen.add((match_id, f))
+    return seen
+
+
 def _innings_roles(deliveries: pd.DataFrame, innings_keeper: pd.DataFrame) -> pd.DataFrame:
-    """One row per (innings, fielder) carrying that player's role in it."""
+    """One row per (innings, fielder) carrying that player's role and field time."""
     inn = (
         deliveries.groupby(_INNINGS_KEYS)
         .agg(balls=("is_legal", "size"), fielding_xi=("fielding_xi", "first"))
         .reset_index()
         .merge(innings_keeper, on=_INNINGS_KEYS, how="left")
     )
+    inn["xi_size"] = inn["fielding_xi"].apply(lambda x: len(x) if x is not None else 0)
+    oversized = inn["xi_size"] > FIELDERS_PER_SIDE
+
     inn = inn.explode("fielding_xi").rename(columns={"fielding_xi": "fielder"})
     inn = inn[inn["fielder"].notna()]
+
+    # --- step 1: evidence-backed removal, oversized squads only ---
+    if FIELD_TIME_NORMALISATION in ("drop", "drop-and-scale") and oversized.any():
+        appeared = _appeared_in_match(deliveries)
+        over_rows = inn["xi_size"] > FIELDERS_PER_SIDE
+        took_part = pd.Series(
+            [
+                (m, f) in appeared
+                for m, f in zip(inn["match_id"], inn["fielder"])
+            ],
+            index=inn.index,
+        )
+
+        # Removal is bounded by the surplus. Where more names never appeared
+        # than the squad is over eleven, we cannot tell which of them sat out,
+        # so we remove NONE and let step 2 scale that innings instead. Squad
+        # list order does not help: among the innings where the count is
+        # unambiguous, the absent name is last only 9% of the time and sits
+        # mid-list in 90%, so `info.players` is not a batting order and carries
+        # no signal about who started. Under-removing is recoverable; asserting
+        # a nine-man fielding side is not.
+        absent = over_rows & ~took_part
+        n_absent = absent.groupby(
+            [inn["match_id"], inn["innings"], inn["fielding_team"]]
+        ).transform("sum")
+        surplus = (inn["xi_size"] - FIELDERS_PER_SIDE).clip(lower=0)
+
+        inn = inn[~(absent & (n_absent <= surplus))].copy()
+        # Recount after the removal; some squads now sit at eleven.
+        inn["xi_size"] = inn.groupby(_INNINGS_KEYS)["fielder"].transform("size")
+
+    # --- step 2: scale whatever is still over eleven ---
+    inn["field_weight"] = 1.0
+    if FIELD_TIME_NORMALISATION == "drop-and-scale":
+        still_over = inn["xi_size"] > FIELDERS_PER_SIDE
+        inn.loc[still_over, "field_weight"] = (
+            FIELDERS_PER_SIDE / inn.loc[still_over, "xi_size"]
+        )
+    inn["balls"] = inn["balls"] * inn["field_weight"]
     inn["bucket"] = np.where(
         inn["stage"] == "unknown",
         "unknown",
@@ -160,6 +232,45 @@ def field_time(deliveries: pd.DataFrame, innings_keeper: pd.DataFrame) -> pd.Dat
     is kept as its own bucket and priced against its own baseline rather than
     folded into outfield, because folding it in would silently recreate the
     error this split exists to remove.
+
+    OVERSIZED SQUADS -- AN APPROXIMATION, NOT A FIX
+    -----------------------------------------------
+    From IPL 2023 the Impact Player rule lets a side use a twelfth player, and
+    Cricsheet lists all twelve in `info.players` with **no marker saying which
+    eleven started**. There is no `playing_xi` key, no per-player object, and
+    the `substitute` flag that appears on dismissal fielders is unrelated --
+    197 of its 199 occurrences name players who are not in `info.players` at
+    all. Role appearance does not separate them either, because under the rule
+    both players usually take part: one bats, the other bowls.
+
+    Left alone, every one of the twelve is credited a full innings of field
+    time, so the denominator carries 12/11 of the truth in the affected
+    innings and every expected-credit charge in them is diluted.
+
+    `FIELD_TIME_NORMALISATION` controls the response, in two steps:
+
+      1. `drop`  -- remove squad members who never appear as batter, bowler,
+                    non-striker or credited fielder in that match, and only
+                    from squads listing more than eleven. This is evidence:
+                    a player who did none of those things did not field.
+                    Removal is bounded by the surplus. Where more names
+                    qualify than the squad is over eleven, none is removed and
+                    step 2 scales the innings instead -- squad order gives no
+                    clue which of them sat out, and a nine-man fielding side
+                    is a worse assertion than an approximate denominator.
+      2. `scale` -- for innings still listing more than eleven, credit each
+                    remaining player `balls * 11 / len(XI)`.
+
+    Be clear about what this does and does not buy. Per-player attribution in
+    those innings is still wrong, by up to 8.3% (1/12) for a player who
+    actually fielded throughout. What the normalisation guarantees is that
+    per-innings player-time totals `11 * balls`, which is a hard physical
+    constraint rather than a modelling preference: eleven players field at any
+    instant. An aggregate that is exactly right and individually approximate
+    beats one that is wrong in both.
+
+    This affects 2023 onward only. No pre-2023 innings lists more than eleven,
+    so no career predating the Impact Player rule is touched.
     """
     inn = _innings_roles(deliveries, innings_keeper)
 
