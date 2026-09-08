@@ -8,10 +8,12 @@ bundle, and because a silent data fault is far more expensive than a loud one.
   1. Parse warnings raised while loading.
   2. Match accounting -- .json entries in the archive vs matches parsed. A
      non-zero difference means matches were dropped without saying so.
-  3. Fielding XI size per innings. Cricsheet includes substitutes and Impact
-     Player replacements, so an XI can list 12 or 13 names. Every listed player
-     is credited with the full innings of field time, which inflates the
-     denominator in `field_time` and dilutes every expected-credit charge.
+  3. Fielding XI size per innings. Under the Impact Player rule, from 2023, a
+     side may use a twelfth player, and Cricsheet lists all of them in
+     `info.players` with no marker for which eleven started. This check reports
+     the raw source state; `fielding.py` handles it downstream via
+     FIELD_TIME_NORMALISATION. It stays a standing check because it is the only
+     signal that the Impact Player era is present in the input at all.
   4. Innings length, and per-player balls-per-innings. A player averaging more
      than a full innings is impossible and means the explode/merge has
      duplicated rows somewhere.
@@ -102,7 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     if oversized:
         findings += 1
         print(f"  -> {oversized:,} innings ({oversized/len(inn):.1%}) list more than 11")
-        print("     every listed player gets full field time, inflating the denominator")
+        print("     the Impact Player rule, 2023 onward: the source names twelve or")
+        print("     thirteen with no marker for which eleven started")
+        print("     handled downstream by fielding.py via FIELD_TIME_NORMALISATION")
 
     # --- 4. innings length and per-player field time ---
     print("\n=== 4. innings length ===")
