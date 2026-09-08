@@ -70,6 +70,19 @@ FIELD_TIME_NORMALISATION = "drop-and-scale"
 # A fielding side is eleven players. This is a rule of cricket, not a tunable.
 FIELDERS_PER_SIDE = 11
 
+# Strength of the shrink applied to each (season, role) expected-credit rate,
+# expressed in balls of pseudo-data at the all-season rate for that role. A
+# cell with this many balls is credited half its own rate and half the pooled
+# one. Like CREDIT_SHARE, an assumption, exposed to be argued with.
+#
+# 10,000 is chosen against the observed cell sizes on IPL 2008-2026:
+#   outfield  median 142,440 balls/season -> keeps ~93% of its own rate
+#   keeper    median  14,244 balls/season -> keeps ~59%
+#   unknown   median   6,408 balls/season -> keeps ~39%
+# The shrink should bind where the cells are thin and be close to inert where
+# they are not, which is what those three numbers say it does.
+SEASON_BASELINE_SHRINKAGE_BALLS = 10_000
+
 
 def _split_credit(kind: str, fielders: list[str]) -> dict[str, float]:
     """Fraction of the total wicket value going to each named fielder."""
@@ -218,6 +231,71 @@ def _innings_roles(deliveries: pd.DataFrame, innings_keeper: pd.DataFrame) -> pd
     return inn
 
 
+def season_bucket_baselines(
+    innings_roles: pd.DataFrame, credits: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Expected-credit rate per (season, role), shrunk toward the pooled role rate.
+
+    Pooling nineteen seasons charges a 2009 fielder and a 2026 fielder the same
+    expected rate. Fielding standards, scoring environments and the value of a
+    wicket all move over that span, so the pooled rate is a blend of eras that
+    matches none of them.
+
+    Season cells are thin -- a keeper season is around 14,000 balls against
+    142,000 for outfielders -- so each cell is shrunk toward the all-season
+    rate for its role:
+
+        rate = (cell_runs + K * pooled_rate) / (cell_balls + K)
+
+    with K = SEASON_BASELINE_SHRINKAGE_BALLS. This is the same
+    pseudo-observation form used for the per-player rate, applied one level up.
+    A cell with no credited events at all falls back to the pooled rate rather
+    than to zero.
+
+    Returns one row per (season, bucket) with the shrunk `runs_rate` and
+    `wpa_rate`, plus the raw cell figures so the shrink is inspectable.
+    """
+    cell_balls = (
+        innings_roles.groupby(["season", "bucket"])["balls"].sum()
+        .reset_index(name="cell_balls")
+    )
+    cell_credit = (
+        credits.groupby(["season", "bucket"])
+        .agg(cell_runs=("runs_saved", "sum"), cell_wpa=("wpa", "sum"))
+        .reset_index()
+    )
+    cells = cell_balls.merge(cell_credit, on=["season", "bucket"], how="left").fillna(
+        {"cell_runs": 0.0, "cell_wpa": 0.0}
+    )
+
+    pooled = (
+        innings_roles.groupby("bucket")["balls"].sum().rename("pooled_balls").to_frame()
+    )
+    pooled_credit = credits.groupby("bucket").agg(
+        pooled_runs=("runs_saved", "sum"), pooled_wpa=("wpa", "sum")
+    )
+    pooled = pooled.join(pooled_credit).fillna(0.0)
+    pooled["pooled_runs_rate"] = pooled["pooled_runs"] / pooled["pooled_balls"]
+    pooled["pooled_wpa_rate"] = np.nan_to_num(pooled["pooled_wpa"]) / pooled["pooled_balls"]
+
+    cells = cells.merge(
+        pooled[["pooled_runs_rate", "pooled_wpa_rate"]], on="bucket", how="left"
+    )
+
+    k = SEASON_BASELINE_SHRINKAGE_BALLS
+    denom = cells["cell_balls"] + k
+    cells["runs_rate"] = (cells["cell_runs"] + k * cells["pooled_runs_rate"]) / denom
+    cells["wpa_rate"] = (
+        np.nan_to_num(cells["cell_wpa"]) + k * cells["pooled_wpa_rate"]
+    ) / denom
+    cells["shrink_weight"] = cells["cell_balls"] / denom
+    cells["raw_runs_rate"] = np.where(
+        cells["cell_balls"] > 0, cells["cell_runs"] / cells["cell_balls"], np.nan
+    )
+    return cells
+
+
 def field_time(deliveries: pd.DataFrame, innings_keeper: pd.DataFrame) -> pd.DataFrame:
     """
     Balls each player spent in the field, split by the role he held.
@@ -272,8 +350,11 @@ def field_time(deliveries: pd.DataFrame, innings_keeper: pd.DataFrame) -> pd.Dat
     This affects 2023 onward only. No pre-2023 innings lists more than eleven,
     so no career predating the Impact Player rule is touched.
     """
-    inn = _innings_roles(deliveries, innings_keeper)
+    return _field_time_from_roles(_innings_roles(deliveries, innings_keeper))
 
+
+def _field_time_from_roles(inn: pd.DataFrame) -> pd.DataFrame:
+    """Per-player totals from an already-computed role frame."""
     wide = (
         inn.pivot_table(
             index="fielder",
@@ -519,7 +600,8 @@ def fielding_leaderboard(
     """
     credits = credit_dismissals(deliveries, run_model, wp_model)
     innings_keeper = resolve_innings_keeper(deliveries, credits)
-    time_df = field_time(deliveries, innings_keeper)
+    roles = _innings_roles(deliveries, innings_keeper)
+    time_df = _field_time_from_roles(roles)
 
     counts = (
         credits.assign(one=1)
@@ -569,7 +651,7 @@ def fielding_leaderboard(
     # attributed to the bucket the player occupied when he earned it, so the
     # rates below are per-role league averages, not per-player.
     cr = credits.merge(
-        innings_keeper[_INNINGS_KEYS + ["keeper", "stage"]],
+        innings_keeper[_INNINGS_KEYS + ["season", "keeper", "stage"]],
         on=_INNINGS_KEYS,
         how="left",
     )
@@ -579,18 +661,26 @@ def fielding_leaderboard(
         np.where(cr["fielder"] == cr["keeper"], "keeper", "outfield"),
     )
 
-    bucket_runs = cr.groupby("bucket")["runs_saved"].sum()
-    bucket_wpa = cr.groupby("bucket")["wpa"].sum()
+    # Rates are per (season, role), not per role: see season_bucket_baselines.
+    # A player's expected credit is his field time in each season-role cell
+    # charged at that cell's rate, summed over his career.
+    cells = season_bucket_baselines(roles, cr)
+    per_cell = (
+        roles.groupby(["fielder", "season", "bucket"])["balls"].sum().reset_index()
+    )
+    per_cell = per_cell.merge(cells[["season", "bucket", "runs_rate", "wpa_rate"]],
+                              on=["season", "bucket"], how="left")
+    per_cell["exp_runs"] = per_cell["balls"] * per_cell["runs_rate"]
+    per_cell["exp_wpa"] = per_cell["balls"] * per_cell["wpa_rate"]
+    expected = (
+        per_cell.groupby("fielder")
+        .agg(expected_runs_saved=("exp_runs", "sum"), expected_wpa=("exp_wpa", "sum"))
+        .reset_index()
+    )
 
-    df["expected_runs_saved"] = 0.0
-    df["expected_wpa"] = 0.0
-    for b in BUCKETS:
-        balls = df[f"{b}_balls"].sum()
-        runs_rate = (bucket_runs.get(b, 0.0) / balls) if balls else 0.0
-        wpa_rate = (np.nan_to_num(bucket_wpa.get(b, 0.0)) / balls) if balls else 0.0
-        df["expected_runs_saved"] += runs_rate * df[f"{b}_balls"]
-        df["expected_wpa"] += wpa_rate * df[f"{b}_balls"]
-
+    df = df.merge(expected, on="fielder", how="left").fillna(
+        {"expected_runs_saved": 0.0, "expected_wpa": 0.0}
+    )
     df["fraa"] = df["runs_saved"] - df["expected_runs_saved"]
     df["wpaa"] = df["wpa"] - df["expected_wpa"]
 

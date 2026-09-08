@@ -9,8 +9,13 @@ sample_data/
 *.parquet
 *.csv
 
-# ...except the published IPL leaderboard (45 KB), which is a result, not raw data
+# ...except the published IPL leaderboard, which is a result, not raw data
 !ipl_fraa.csv
+
+# ...and the baseline snapshots a model change was measured against. These are
+# small and they are evidence: without them a committed era-effect comparison
+# cannot be reproduced.
+!baselines/*.csv
 
 # OS / editor
 .DS_Store
