@@ -17,6 +17,10 @@ sample_data/
 # cannot be reproduced.
 !baselines/*.csv
 
+# Generated web export. Not tracked yet -- undecided whether these belong in
+# the repo or should be built in CI.
+web-data/*.json
+
 # OS / editor
 .DS_Store
 
