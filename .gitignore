@@ -9,6 +9,9 @@ sample_data/
 *.parquet
 *.csv
 
+# ...except the published IPL leaderboard (45 KB), which is a result, not raw data
+!ipl_fraa.csv
+
 # OS / editor
 .DS_Store
 
