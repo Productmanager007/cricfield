@@ -9,11 +9,11 @@ cricfield is an option-value engine for cricket decisions: it prices the deliver
 State as of 2026-09-08.
 
 - **Runs today:** nothing. No `.py` files, no `cricfield/` package, no dependency manifest.
-- **Present:** `problem.txt` (this *is* the PRD), `architecture.md`, `CONTEXT.md`.
+- **Present:** `problem.txt` (this *is* the PRD), `architecture.md`, `CONTEXT.md`, `WORKING-NOTES.md`, `.gitignore`.
 - **Referenced but absent:** `PRD.md`, `README.md`, `MILESTONE.md`, `cricfield/*.py`.
 - **Stubbed:** nothing — no scaffolding exists.
 - **Untested:** everything. No test framework, no CI.
-- **Not under version control** — git is not initialised.
+- **Under git** since 2026-09-08, root commit `82136bf`. `git` is *not* on PATH; it lives at `%LOCALAPPDATA%\Programs\Git\cmd\git.exe`.
 - **Data:** none ingested. No Cricsheet download, Parquet store or DuckDB file.
 - M1–M9 are specifications; none is implemented.
 
@@ -22,7 +22,7 @@ State as of 2026-09-08.
 - **Credit shares are decision-layer parameters, never constants** — M2 rankings must survive sensitivity analysis across credit regimes.
 - **Value functions blend empirical bins with a fitted surface where cells are sparse, monotonicity enforced** — raw bins are too noisy in thin cells to be evidence.
 - **Provenance is the triple (dataset version, model version, assumption set)** — assumptions change a published number without changing data or model. [inferred — architecture.md §8; the PRD requires only the first two]
-- **The Tier 1 commentary classifier is a model, not a parser** — its output is a learned label needing its own calibration and version. Supersedes architecture.md §13, which lists this open.
+- **The commentary scraper is a parser; the commentary classifier is a model** — the scraper is deterministic and fails loudly with no training data; the classifier is trained, has held-out accuracy, and its version belongs in the provenance triple.
 - **All value reports in runs above replacement** — one axis, or cross-discipline comparison fails.
 - **Nothing is fitted at request time** — outputs precomputed, surfaces read them.
 
@@ -30,9 +30,8 @@ State as of 2026-09-08.
 
 - No architectural claim is verified by execution.
 - Filename drift: the PRD is `problem.txt`, not `PRD.md`.
-- architecture.md §13 contradicts the classifier decision above.
-- No version control, so the reproducibility requirement cannot be met.
-- Case-insensitive filesystem: `CONTEXT.md` and `context.md` are one path; an earlier `context.md` was replaced by this file.
+- **The repo lives inside OneDrive.** A `.git` directory under a syncing folder risks index and object corruption; the repo should move to a non-synced path.
+- Case-insensitive filesystem: `CONTEXT.md` and `context.md` are one path. Never create a name differing only in case.
 - M2 at Tier 0 sees only fielding that ends in a wicket — a ceiling, not a bug.
 - Tier 2–3 data is unsecured, so M4–M7 are unbuildable, not merely unbuilt.
 

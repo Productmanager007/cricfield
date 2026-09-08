@@ -55,7 +55,12 @@ Two flows cross the layers in opposite directions:
 
 **Boundary rule.** "Protect this boundary hard" (ctx §5); "the canonical ball record is sacred… new sources adapt to the schema; the schema does not adapt to sources" (ctx §17).
 
-**Derived:** the Tier 1 classifier is an ingestion-side concern for the *label*, but its output is consumed as a label of moderate and uneven reliability (PRD §5). Whether the classifier is versioned as a parser or as a model is not settled by either document — see §11.
+**The Tier 1 commentary pipeline splits across two layers** (settled — CONTEXT.md §3):
+
+- The **scraper is a parser** and belongs in this layer. It is deterministic, has no training data, and **fails loudly** rather than degrading.
+- The **classifier is a model** and belongs in the model layer (§4). It is trained, carries a held-out accuracy figure, and its version is part of the provenance triple (§8).
+
+The layer boundary therefore falls between retrieving the commentary text and labelling it. What the classifier emits is a label of moderate and uneven reliability (PRD §5), which is exactly why it needs a model's calibration diagnostics rather than a parser's pass/fail.
 
 ---
 
@@ -308,8 +313,11 @@ From PRD §14, restricted to the questions with architectural consequences:
 - **Public model versus proprietary** — working assumption is that the moat is data relationships and domain trust, not code, but this should be a decision, not a default (PRD §14.5).
 - **Test cricket** — whether the value-function architecture extends or needs replacing (PRD §14.6). This is a question about M1, and therefore about the denominator of every other number in the system.
 
+**Settled at this level** (CONTEXT.md §3):
+
+- **The commentary scraper is a parser; the commentary classifier is a model.** The scraper is deterministic, has no training data and fails loudly, so it belongs in ingestion (§2). The classifier is trained and has a held-out accuracy figure, so it belongs in the model layer (§4) and its version enters the provenance triple (§8). The Tier 1 pipeline crosses a layer boundary between fetching the text and labelling it.
+
 **Open at this level and not settled by either document** (**Derived**):
 
-- Whether the Tier 1 commentary classifier is versioned as a parser (ingestion) or as a model (model layer) — §2 above.
 - How the feature store records *which tier* populated an attribute, given that surfaces must mark reduced capability — §3 above.
 - The decision layer's tooling, which neither document specifies — §10 above.
