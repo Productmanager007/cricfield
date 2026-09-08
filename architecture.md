@@ -1,6 +1,6 @@
 # cricfield — architecture
 
-**Sources.** This document elaborates the architecture stated in [problem.txt](problem.txt) §6 and [context.md](context.md) §5. It adds no requirements. Every statement carries a reference to its source: `PRD §n` for the PRD, `ctx §n` for the working context.
+**Sources.** This document elaborates the architecture stated in [PRD.md](PRD.md) §6 and [WORKING-NOTES.md](WORKING-NOTES.md) §5. It adds no requirements. Every statement carries a reference to its source: `PRD §n` for [PRD.md](PRD.md), `ctx §n` for [WORKING-NOTES.md](WORKING-NOTES.md).
 
 **Convention.** Anything not stated in either source is marked **Derived** and is a proposal to confirm, not a decision. Nothing here overrides the PRD.
 

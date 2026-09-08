@@ -1,6 +1,6 @@
 # cricfield — working context
 
-**Purpose of this file.** Orientation for anyone (human or agent) picking up work on cricfield. It distils [problem.txt](problem.txt) — the system-level PRD — into the things you need in working memory: what the system is, what the words mean, what the data contract is, what depends on what, what order to build in, and which decisions are settled versus open.
+**Purpose of this file.** Orientation for anyone (human or agent) picking up work on cricfield. It distils [PRD.md](PRD.md) — the system-level PRD — into the things you need in working memory: what the system is, what the words mean, what the data contract is, what depends on what, what order to build in, and which decisions are settled versus open.
 
 The PRD is the source of truth for intent. This file is the source of truth for *how the work is organised*. Where they disagree, the PRD wins on "what" and this file wins on "how" — and the disagreement should be resolved rather than left standing.
 

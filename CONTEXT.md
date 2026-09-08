@@ -9,7 +9,7 @@ cricfield is an option-value engine for cricket decisions: it prices the deliver
 State as of 2026-09-08.
 
 - **Runs today:** nothing. No `.py` files, no `cricfield/` package, no dependency manifest.
-- **Present:** `problem.txt` (this *is* the PRD), `architecture.md`, `CONTEXT.md`, `WORKING-NOTES.md`, `.gitignore`.
+- **Present:** `PRD.md`, `architecture.md`, `CONTEXT.md`, `WORKING-NOTES.md`, `README.md`, `.gitignore`, `cricfield/`, `make_sample_data.py`, `sensitivity.py`, `scripts/`.
 - **Referenced but absent:** `PRD.md`, `README.md`, `MILESTONE.md`, `cricfield/*.py`.
 - **Stubbed:** nothing — no scaffolding exists.
 - **Untested:** everything. No test framework, no CI.
@@ -29,7 +29,7 @@ State as of 2026-09-08.
 ## 4. Known problems
 
 - No architectural claim is verified by execution.
-- Filename drift: the PRD is `problem.txt`, not `PRD.md`.
+- FRAA may carry residual team structure: the expected-credit baseline in `fielding.py` assumes chances arrive uniformly per ball in field, so a team with a better attack may hand its fielders unearned credit. Measured by `scripts/diagnose_baseline.py`; unfixed.
 - **The repo lives inside OneDrive.** A `.git` directory under a syncing folder risks index and object corruption; the repo should move to a non-synced path.
 - Case-insensitive filesystem: `CONTEXT.md` and `context.md` are one path. Never create a name differing only in case.
 - M2 at Tier 0 sees only fielding that ends in a wicket — a ceiling, not a bug.
