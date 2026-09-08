@@ -5,7 +5,9 @@ __pycache__/
 
 # Data — never commit the ball store or generated samples
 data/
+sample_data/
 *.parquet
+*.csv
 
 # OS / editor
 .DS_Store
