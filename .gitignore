@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Data — never commit the ball store or generated samples
+data/
+*.parquet
+
+# OS / editor
+.DS_Store
+
+# Secrets
+.env
