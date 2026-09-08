@@ -129,6 +129,26 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  mean |rank movement| = {m['d_rank'].abs().mean():.2f}")
     print(f"  max  |rank movement| = {int(m['d_rank'].abs().max())}")
 
+    # --- movement by rank band ------------------------------------------
+    # The headline mean is dominated by the tail, where FRAA sits near zero
+    # and rank ordering is mostly noise: a fraction of a run reshuffles fifty
+    # places. Nobody reads rank 400. Report the part of the table people
+    # actually look at separately, or a change that leaves the top untouched
+    # will look far more disruptive than it is.
+    print(f"\n  movement by band of the player's PRIOR rank:")
+    print(f"    {'band':<14} {'n':>4} {'mean |move|':>12} {'max |move|':>11}")
+    bounds = [(1, 20, "top 20"), (1, 50, "top 50"), (1, 100, "top 100")]
+    for lo, hi, label in bounds:
+        sel = m[(m["rank_old"] >= lo) & (m["rank_old"] <= hi)]
+        if sel.empty:
+            continue
+        print(f"    {label:<14} {len(sel):>4} {sel['d_rank'].abs().mean():>12.2f} "
+              f"{int(sel['d_rank'].abs().max()):>11}")
+    rest = m[m["rank_old"] > 100]
+    if not rest.empty:
+        print(f"    {'rank 101+':<14} {len(rest):>4} {rest['d_rank'].abs().mean():>12.2f} "
+              f"{int(rest['d_rank'].abs().max()):>11}")
+
     print(f"\n=== era effect (boundary {a.boundary}) ===\n")
     bands = pd.cut(
         m["late_share"], [-0.01, 0.001, 0.25, 0.75, 1.01],
