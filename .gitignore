@@ -18,8 +18,9 @@ sample_data/
 !baselines/*.csv
 
 # Generated web export. Not tracked yet -- undecided whether these belong in
-# the repo or should be built in CI.
-web-data/*.json
+# the repo or should be built in CI. Covers the whole directory: the per-player
+# split writes into web-data/seasons/, which web-data/*.json would not match.
+web-data/
 
 # OS / editor
 .DS_Store

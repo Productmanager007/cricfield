@@ -2,15 +2,22 @@
 Export the leaderboard as JSON for the web MVP. Read-only: it reads match data
 and the committed model, and writes only into the output directory.
 
-Three files, into web-data/ by default:
+Into web-data/ by default:
 
-  players.json         one entry per qualified fielder -- the career table
-  player_seasons.json  one entry per (qualified fielder, season), with FRAA
-                       computed within that season against that season's
-                       baseline. The career CSV cannot answer "was he better
-                       in 2019 than in 2024", and a comparison view needs it.
-  meta.json            dataset provenance and the assumption values the
-                       numbers were produced under
+  players.json          one entry per qualified fielder -- the career table,
+                        each carrying the `slug` needed to build the path below
+  seasons/<slug>.json   that player's seasons, with FRAA computed within each
+                        season against that season's baseline. The career table
+                        cannot answer "was he better in 2019 than in 2024", and
+                        a comparison view needs it.
+  seasons/index.json    display name -> slug, for lookup without loading
+                        players.json
+  meta.json             dataset provenance and the assumption values the
+                        numbers were produced under
+
+The per-player split is a load-time decision, not a tidiness one. A comparison
+view opens two players, not 528, so it should fetch a few KB rather than the
+1.1MB a single combined file costs.
 
 meta.json is the point of the exercise as much as the data is. Any number
 shown on a web page has to be traceable to the model version that produced
@@ -20,20 +27,23 @@ blob on a CDN with no provenance is an opinion.
 
     python scripts/export_web.py --data ipl_json.zip --min-balls 900
 
-NO PER-SEASON MINIMUM IS APPLIED. A player-season can be a handful of balls,
-and a rate computed on it is noise. The script reports the distribution so a
-threshold can be chosen on evidence; it does not pick one. For the same
-reason the per-season rate is published unshrunk as `fraa_per_100_raw`:
-shrinking it would need a constant, and that constant is the same open
-decision.
+NO ROWS ARE FILTERED OUT. Every player-season is exported, including the tiny
+ones, and each carries a `qualifies` boolean set at SEASON_QUALIFY_BALLS. The
+web layer decides what to do with it; the exporter does not decide on its
+behalf. The threshold is recorded in meta.json so it is traceable like every
+other assumption. For the same reason the per-season rate is published
+unshrunk as `fraa_per_100_raw`: shrinking it would need a constant, and that
+constant is a separate open decision.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -53,10 +63,67 @@ from cricfield.value import RunExpectancy, WinProbability  # noqa: E402
 _INNINGS_KEYS = ["match_id", "innings", "fielding_team"]
 
 PLAYER_COLS = [
-    "fielder", "role", "rank", "balls_in_field", "keeper_balls",
+    "fielder", "slug", "role", "rank", "balls_in_field", "keeper_balls",
     "outfield_balls", "catches", "run_outs", "stumpings", "runs_saved",
     "expected_runs_saved", "fraa", "fraa_per_100", "wpa",
 ]
+
+# A player-season below this is too thin to read a rate from. Two matches'
+# worth of field time. It removes the noisiest ~11% of rows while keeping
+# genuine partial seasons -- a 600- or 900-ball cut would delete those, and
+# a player who was injured in May is not the same thing as a player with
+# eleven balls of substitute fielding.
+#
+# Rows are NOT filtered. Every season is exported with a `qualifies` flag and
+# the web layer decides.
+SEASON_QUALIFY_BALLS = 240
+
+# Windows will not create a file with these names, whatever the extension.
+_RESERVED = {
+    "con", "prn", "aux", "nul", "com0", "com1", "com2", "com3", "com4",
+    "com5", "com6", "com7", "com8", "com9", "lpt0", "lpt1", "lpt2", "lpt3",
+    "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+}
+
+
+def slugify(name: str) -> str:
+    """
+    A filesystem- and URL-safe stem for a player name.
+
+    Accents are folded rather than dropped, so Mendis and Méndez do not
+    collide by accident, and anything left that is not alphanumeric becomes a
+    single hyphen.
+    """
+    folded = unicodedata.normalize("NFKD", str(name))
+    ascii_only = folded.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", ascii_only).strip("-").lower()
+    if not slug:
+        slug = "player"
+    if slug in _RESERVED:
+        slug = f"{slug}-x"
+    return slug
+
+
+def build_slugs(names) -> dict[str, str]:
+    """
+    Name -> slug, with collisions resolved deterministically.
+
+    Two different players can fold to the same slug. Silently overwriting one
+    file with another player's seasons would be invisible on the page and
+    wrong, so collisions get a numeric suffix, assigned in sorted name order
+    so the mapping is stable across runs.
+    """
+    out: dict[str, str] = {}
+    used: dict[str, int] = {}
+    for name in sorted(names):
+        base = slugify(name)
+        if base in used:
+            used[base] += 1
+            out[name] = f"{base}-{used[base]}"
+        else:
+            used[base] = 1
+            out[name] = base
+    return out
 
 
 def git_commit() -> dict:
@@ -209,6 +276,7 @@ def build_player_seasons(
         .idxmax(axis=1).str.replace("_balls", "", regex=False)
     )
     df.loc[df["balls_in_field"] <= 0, "role"] = None
+    df["qualifies"] = df["balls_in_field"] >= SEASON_QUALIFY_BALLS
     return df.sort_values(["fielder", "season"]).round(4)
 
 
@@ -258,13 +326,54 @@ def main(argv: list[str] | None = None) -> int:
     keep = set(board["fielder"])
     seasons = build_player_seasons(roles, cr, cells, keep)
 
+    slugs = build_slugs(board["fielder"])
+    board["slug"] = board["fielder"].map(slugs)
+    seasons["slug"] = seasons["fielder"].map(slugs)
+
+    # --- reconciliation: seasons must sum back to the career row ---------
+    # Cheap, and it has already caught one real bug: merging the per-season
+    # table onto field time alone dropped seasons where a qualified player
+    # earned credit only as a substitute fielder. If this ever fails, the two
+    # views on the page will disagree and the page is the last place to find
+    # that out.
+    recon = (
+        seasons.groupby("fielder")
+        .agg(s_fraa=("fraa", "sum"), s_runs=("runs_saved", "sum"),
+             s_catches=("catches", "sum"))
+        .reset_index()
+        .merge(board[["fielder", "fraa", "runs_saved", "catches"]], on="fielder")
+    )
+    recon["d_fraa"] = (recon["fraa"] - recon["s_fraa"]).abs()
+    recon["d_catches"] = (recon["catches"] - recon["s_catches"]).abs()
+    bad = recon[(recon["d_fraa"] > 0.01) | (recon["d_catches"] > 0.5)]
+
     # --- write ---------------------------------------------------------
     players_path = outdir / "players.json"
-    seasons_path = outdir / "player_seasons.json"
     meta_path = outdir / "meta.json"
+    seasons_dir = outdir / "seasons"
+    seasons_dir.mkdir(parents=True, exist_ok=True)
+
+    # Drop a previous run's combined file so nothing stale is served.
+    legacy = outdir / "player_seasons.json"
+    if legacy.exists():
+        legacy.unlink()
 
     players_path.write_text(json.dumps(_clean(board[PLAYER_COLS]), indent=None))
-    seasons_path.write_text(json.dumps(_clean(seasons), indent=None))
+
+    season_cols = [c for c in seasons.columns if c != "slug"]
+    written = 0
+    for name, grp in seasons.groupby("fielder"):
+        payload = {
+            "fielder": name,
+            "slug": slugs[name],
+            "seasons": _clean(grp[season_cols].drop(columns=["fielder"])),
+        }
+        (seasons_dir / f"{slugs[name]}.json").write_text(json.dumps(payload, indent=None))
+        written += 1
+
+    (seasons_dir / "index.json").write_text(
+        json.dumps({name: slug for name, slug in sorted(slugs.items())}, indent=None)
+    )
 
     git = git_commit()
     meta = {
@@ -292,7 +401,19 @@ def main(argv: list[str] | None = None) -> int:
             "SEASON_BASELINE_SHRINKAGE_BALLS": fielding.SEASON_BASELINE_SHRINKAGE_BALLS,
             "regression_balls": a.regression_balls,
             "min_balls": a.min_balls,
+            "season_qualify_balls": SEASON_QUALIFY_BALLS,
         },
+        "season_qualify_balls": SEASON_QUALIFY_BALLS,
+        "season_qualify_rationale": (
+            "A player-season below this is too thin to read a rate from. 240 "
+            "balls is two matches' worth of field time: it flags the noisiest "
+            "~11% of rows while keeping genuine partial seasons, which a 600- "
+            "or 900-ball cut would delete. No rows are filtered out of the "
+            "export -- every season carries a `qualifies` boolean and the web "
+            "layer decides what to show."
+        ),
+        "seasons_qualifying": int(seasons["qualifies"].sum()),
+        "reconciled_players": int(len(recon) - len(bad)),
         "caveats": [
             "Ground fielding is not observed: Cricsheet records dismissals, "
             "not fielding events. Elite ground fielders rank low.",
@@ -305,10 +426,37 @@ def main(argv: list[str] | None = None) -> int:
     meta_path.write_text(json.dumps(meta, indent=2))
 
     # --- report --------------------------------------------------------
+    per_player = sorted(seasons_dir.glob("*.json"))
+    sizes = {f: f.stat().st_size for f in per_player}
+    index_size = (seasons_dir / "index.json").stat().st_size
+    total = players_path.stat().st_size + meta_path.stat().st_size + sum(sizes.values())
+
     print(f"\n=== written to {outdir} ===\n")
-    for f in (players_path, seasons_path, meta_path):
-        print(f"  {f.name:<22} {f.stat().st_size:>10,} bytes  "
+    for f in (players_path, meta_path):
+        print(f"  {f.name:<24} {f.stat().st_size:>10,} bytes  "
               f"({f.stat().st_size/1024:.1f} KB)")
+    print(f"  seasons/index.json       {index_size:>10,} bytes  "
+          f"({index_size/1024:.1f} KB)")
+    print(f"  seasons/*.json           {written:>10,} files")
+    print(f"\n  total on disk            {total:>10,} bytes  ({total/1024:.1f} KB)")
+
+    player_only = {f: s for f, s in sizes.items() if f.name != "index.json"}
+    biggest = max(player_only, key=player_only.get)
+    vals = sorted(player_only.values())
+    print(f"\n  per-player files:")
+    print(f"    largest  {biggest.name:<28} {player_only[biggest]:>7,} bytes "
+          f"({player_only[biggest]/1024:.1f} KB)")
+    print(f"    median   {vals[len(vals)//2]:>7,} bytes")
+    print(f"    smallest {vals[0]:>7,} bytes")
+    print(f"    a two-player comparison fetches about "
+          f"{2*vals[len(vals)//2]/1024:.1f} KB")
+
+    print(f"\n=== reconciliation (seasons sum to career) ===\n")
+    print(f"  players reconciled : {len(recon) - len(bad)} / {len(recon)}")
+    print(f"  max |d_fraa|       : {recon['d_fraa'].max():.6f}")
+    if len(bad):
+        print("  MISMATCHES:")
+        print(bad[["fielder", "fraa", "s_fraa", "d_fraa"]].to_string(index=False))
 
     print(f"\n=== player_seasons ===\n")
     print(f"  rows            : {len(seasons):,}")
@@ -325,9 +473,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n  rows at or below a candidate minimum:")
     for thr in (60, 120, 240, 360, 600, 900):
         n = int((b < thr).sum())
-        print(f"    < {thr:>4} balls : {n:>6,}  ({n/len(seasons):>6.1%} of rows)")
-    print("\n  No minimum is applied. Pick one from the distribution above.")
-    return 0
+        mark = "  <- SEASON_QUALIFY_BALLS" if thr == SEASON_QUALIFY_BALLS else ""
+        print(f"    < {thr:>4} balls : {n:>6,}  ({n/len(seasons):>6.1%} of rows){mark}")
+
+    q = int(seasons["qualifies"].sum())
+    print(f"\n  qualifies=true : {q:,} of {len(seasons):,} ({q/len(seasons):.1%})")
+    print("  No rows are filtered. The flag is advisory; the web layer decides.")
+    return 1 if len(bad) else 0
 
 
 if __name__ == "__main__":
