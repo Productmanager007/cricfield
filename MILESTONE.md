@@ -20,9 +20,11 @@ Phases are ordered by dependency, not by preference or interest. No dates and no
 
 ## Phase 2 — Leaderboard
 
-**Delivers.** The route reading `players.json`: 528 qualified fielders with rank, name, role, field time, FRAA and FRAA per 100, sortable by column, searchable by name.
+**Delivers.** The route reading `players.json`: 528 qualified fielders with rank, name, role, field time, FRAA and FRAA per 100, sortable by column, searchable by name. Also a persistent limitations note, built as a component and shown on every route that displays a number. The methodology page itself stays in Phase 5; this is the always-visible note that points at what that page will explain.
 
-**Done when.** A row picked at random matches the corresponding row of `ipl_fraa.csv` field for field, and the sort order at load matches the exported `rank` without the page computing it. Sorting by a different column reorders the display and leaves every value unchanged.
+**Done when.** A row picked at random matches the corresponding row of `ipl_fraa.csv` field for field, and the sort order at load matches the exported `rank` without the page computing it. Sorting by a different column reorders the display and leaves every value unchanged. The limitations note is visible without scrolling on both desktop and a 375px viewport, on every route built so far, and names the concrete evidence: RA Jadeja 105th of 528. It is not a modal, not a tooltip, and not behind a link. At 375px the leaderboard collapses to fewer columns rather than scrolling horizontally.
+
+**Why the note is here and not in Phase 5.** Without it, Phases 2–4 produce a demoable leaderboard with no caveat on screen, and that is exactly when a screenshot escapes. The caveat is a component, not documentation. The mobile criterion exists because most traffic will arrive from a link in a post or a DM, which means a phone.
 
 **Depends on.** Phase 1.
 
@@ -38,7 +40,7 @@ Phases are ordered by dependency, not by preference or interest. No dates and no
 
 **Delivers.** A route showing two players side by side across their common seasons, with one bar chart.
 
-**Done when.** Selecting two players fetches exactly two season files and nothing else, observable in the browser network panel, and the totals shown for each player match their player-detail pages exactly. A player pair with no overlapping seasons renders a stated "no common seasons" result rather than an empty chart.
+**Done when.** Selecting two players fetches exactly two season files and nothing else, observable in the browser network panel, and the totals shown for each player match their player-detail pages exactly. A player pair with no overlapping seasons renders a stated "no common seasons" result rather than an empty chart. At 375px the compare view stacks the two players rather than truncating either, because most traffic will arrive from a link in a post or a DM, which means a phone.
 
 **Depends on.** Phase 3, which establishes the season-file read path.
 
