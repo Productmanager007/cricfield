@@ -150,6 +150,11 @@ def git_commit() -> dict:
     Tried via a git executable first, then by reading .git directly, because an
     export with no provenance is worse than a slow one.
 
+    `dirty` means "tracked files differ from the recorded commit". It
+    deliberately ignores untracked files: an export sits beside a downloaded
+    data bundle and its own output, and neither says anything about whether
+    the code that ran matches the commit being reported.
+
     `dirty_known` matters as much as `dirty`. The .git fallback can recover the
     commit but cannot tell whether the working tree was modified, so it reports
     dirty=None. A consumer that reads that null as "clean" would state, on a
@@ -167,8 +172,16 @@ def git_commit() -> dict:
             if sha.returncode != 0:
                 continue
             out["commit"] = sha.stdout.strip()
+            # --untracked-files=no is load-bearing. The question `dirty`
+            # answers is "were the tracked source files modified relative to
+            # the recorded commit", not "is anything else sitting in the
+            # directory". Plain --porcelain reports untracked files too, and
+            # the export runs beside a downloaded ipl_json.zip, so CI reported
+            # dirty: true on a checkout where a tracked file could not
+            # possibly have been modified.
             status = subprocess.run(
-                [exe, "-C", str(ROOT), "status", "--porcelain"],
+                [exe, "-C", str(ROOT), "status", "--porcelain",
+                 "--untracked-files=no"],
                 capture_output=True, text=True, timeout=15,
             )
             if status.returncode == 0:

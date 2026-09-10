@@ -375,9 +375,11 @@ This is what makes a number on a page traceable. A figure shown in the browser c
 
 | `git_dirty_known` | `git_dirty` | Meaning | How the methodology page renders it |
 |---|---|---|---|
-| `true` | `false` | Clean tree; the commit describes the code that ran | the commit, plainly |
-| `true` | `true` | Uncommitted changes; the commit does **not** describe the code that ran | the commit, marked as modified |
+| `true` | `false` | Tracked files match the recorded commit; it describes the code that ran | the commit, plainly |
+| `true` | `true` | Tracked files were modified; the commit does **not** describe the code that ran | the commit, marked as modified |
 | `false` | `null` | No git executable was found; nobody checked | "unknown", never "clean" |
+
+`git_dirty` reports **tracked** modifications only (`git status --porcelain --untracked-files=no`). Untracked files are deliberately excluded, because an export always runs beside things that are not in the repository — a downloaded `ipl_json.zip`, its own `web-data/` output — and none of them says anything about whether the code that ran matches the commit being reported. The first CI export got this wrong and reported `git_dirty: true` on a pinned checkout into an empty directory, where a tracked file could not possibly have been modified.
 
 **A consumer must read `git_dirty_known` before `git_dirty`.** Treating the null as falsy renders the third row as the first, which states on a methodology page that a number came from an unmodified commit when nothing verified that. This is the same class of error as displaying a point estimate without its interval (PRD §4.3): the number is not wrong, the confidence attached to it is invented. The exporter also prints a warning at export time for all three failing cases rather than recording them silently (`scripts/export_web.py`).
 

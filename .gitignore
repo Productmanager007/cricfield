@@ -8,6 +8,9 @@ data/
 sample_data/
 *.parquet
 *.csv
+# Source bundles are downloaded, never committed. This also keeps a stray
+# ipl_json.zip out of `git status`, which is what the provenance check reads.
+*.zip
 
 # ...except the published IPL leaderboard, which is a result, not raw data
 !ipl_fraa.csv
