@@ -326,7 +326,7 @@ From PRD §14, restricted to the questions with architectural consequences:
 
 ## 14. The web layer
 
-**Nothing in this section is built.** No `web/` directory exists. This describes the design the MVP will follow, and is written in the present tense about that design rather than about the repository as it stands. `scripts/export_web.py` exists and produces the data described below; everything that consumes it does not.
+**Only the shell is built.** `web/` exists as of `6a8a4fb` (MILESTONE Phase 1): a Next.js app that builds to a static export, the build step described below, and a single provenance page reading `meta.json`. The leaderboard, player detail, compare and methodology views are not built; where this section describes them, it is written in the present tense about the design rather than about the repository as it stands. `scripts/export_web.py` exists and produces the data described below.
 
 The PRD places the web application in the surfaces layer (PRD §6, §8) and specifies Next.js on Vercel (PRD §12). This section says how that surface attaches to the rest of the system.
 
@@ -354,6 +354,10 @@ What `scripts/export_web.py` actually writes into `web-data/`, as observed on th
 | `seasons/index.json` | An object mapping display name to slug, 528 entries | Name lookup without loading `players.json` |
 | `meta.json` | Provenance and assumptions — see below | The methodology page, and the footer of every page |
 
+**The site serves every file under `/data/`**, at the path it has inside `web-data/`: `/data/players.json`, `/data/seasons/<slug>.json`, `/data/seasons/index.json`, `/data/meta.json` (`web/scripts/copy-data.mjs`, `web/lib/meta.ts`).
+
+**Derived, and settled by the Phase 1 build:** generated data is namespaced under one directory rather than written into the site root, which keeps the root available for static assets and means no exported filename can collide with one. It also makes the copy a single directory the build can delete and replace wholesale, which is what lets a failed build remove a stale copy instead of leaving one behind.
+
 Two properties of that table are load-bearing. The season files are split per player because a comparison view opens two players and not all 528: the split turns a 1.1 MB fetch into about 3.8 KB. And `players.json` deliberately omits `unknown_balls`, which the season files carry, so the two files are not interchangeable — a view needing the unknown-bucket split must read the season file.
 
 **The frontend computes nothing.** Every displayed number is a field read from the JSON as exported. `fraa_per_100` is not derived in the browser from `fraa` and `balls_in_field`; it is read. This follows from the requirement that nothing is fitted at request time and interactive surfaces read stored results (PRD §9, ctx §9), and it extends that rule from fitting to arithmetic: a browser that recomputes a figure has forked the model, and the fork will drift.
@@ -366,9 +370,9 @@ Sorting, filtering to a search string, and paging are presentation and belong in
 
 This is what makes a number on a page traceable. A figure shown in the browser came from a named field, in a named file, produced by a named commit, under a named set of assumptions. That chain satisfies the reproducibility requirement (PRD §9) and the assumption-transparency requirement that credit shares, replacement level, shrinkage strength and phase boundaries are visible in the interface and included in every export (PRD §9, ctx §9). Because the assumptions travel inside the export rather than being written into the page, a page cannot describe a model version it was not built from.
 
-**What breaks when the export and the deploy come from different commits.** The failure is silent, which is what makes it worth designing against. The page renders, every number displays, and the methodology page states assumptions that were not the ones used. Two concrete cases already exist in this repository:
+**What breaks when the export and the deploy come from different commits.** The failure is silent, which is what makes it worth designing against. The page renders, every number displays, and the methodology page states assumptions that were not the ones used. Two concrete cases have occurred in this repository:
 
-- The current `web-data/meta.json` records `git_commit: f3e0a79`, while `HEAD` is `788685e`. The export ran before the commit that changed the exporter. Nothing about the artefact announces this; only comparing the two reveals it.
+- A local `web-data/meta.json` recorded `git_commit: f3e0a79` while `HEAD` was `788685e`. The export ran before the commit that changed the exporter. Nothing about the artefact announces this; only comparing the two reveals it.
 - That same file recorded `git_dirty: null`, not `false`. `git_commit()` falls back to reading `.git` directly when no git executable can be found, and the fallback can recover the commit but cannot tell whether the tree was clean. A null there means the dirty state is unknown, not that the tree was clean.
 
 **Three provenance states, and the interface must distinguish them.** `meta.json` carries `git_dirty` alongside `git_dirty_known` precisely so that null cannot be misread:
@@ -387,9 +391,9 @@ This is what makes a number on a page traceable. A figure shown in the browser c
 
 ### The build step
 
-`web-data/` is generated and gitignored, so it is absent from a fresh clone. The build copies it into `web/public/` — the frontend fetches `/players.json` and `/seasons/<slug>.json` as static assets from its own origin, so no CORS configuration and no asset host is involved.
+`web-data/` is generated and gitignored, so it is absent from a fresh clone. The build copies it into `web/public/data/` — the frontend fetches `/data/players.json` and `/data/seasons/<slug>.json` as static assets from its own origin, so no CORS configuration and no asset host is involved (`web/scripts/copy-data.mjs`).
 
-**If `web-data/` is missing at build time, the build fails loudly and does not produce a site.** A frontend that renders an empty leaderboard when its data is absent is indistinguishable from one whose data is wrong, and the second is far more expensive. This is the same reasoning that makes the commentary scraper a parser rather than a model in §2: a deterministic step with no data should stop, not degrade.
+**If `web-data/` is missing at build time, the build fails loudly and does not produce a site.** A frontend that renders an empty leaderboard when its data is absent is indistinguishable from one whose data is wrong, and the second is far more expensive. This is the same reasoning that makes the commentary scraper a parser rather than a model in §2: a deterministic step with no data should stop, not degrade. `npm run build` runs `web/scripts/copy-data.mjs` ahead of `next build`; it exits 1 naming the missing directory, and deletes any earlier `web/public/data/` so that a failed build leaves nothing stale to serve.
 
 **Settled: CI is the canonical producer of `web-data/`** (`.github/workflows/export.yml`). The workflow runs the exporter on `ubuntu-latest` against a freshly downloaded Cricsheet bundle and publishes the result as a build artefact. A local export remains useful during development; it is not the thing that gets published.
 

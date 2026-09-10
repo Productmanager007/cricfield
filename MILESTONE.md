@@ -4,13 +4,15 @@
 
 This file describes the milestone in progress and nothing else. It is rewritten when the milestone closes, not appended to. The roadmap lives in `PRD.md`; what is true of the repo right now lives in `CONTEXT.md`; why the code is shaped this way lives in `architecture.md` §14 for the web layer specifically.
 
-**Nothing in this milestone is built.** No `web/` directory exists. The model and `scripts/export_web.py` are complete and committed; every phase below is ahead of the work, not behind it.
+**Phase 1 is complete; nothing after it is built.** The model and `scripts/export_web.py` are complete and committed; Phases 2–6 are ahead of the work, not behind it.
 
 Phases are ordered by dependency, not by preference or interest. No dates and no estimates: the ordering is the plan.
 
 ---
 
 ## Phase 1 — Static shell and the data pipeline
+
+**Status.** Complete in `6a8a4fb`. The build step copies `web-data/` into `web/public/data/`, served under `/data/` (`architecture.md` §14).
 
 **Delivers.** A Next.js application under `web/` that builds to a static export, and a build step that copies `web-data/` into `web/public/` and fails loudly when it is absent.
 
