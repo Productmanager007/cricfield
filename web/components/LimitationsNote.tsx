@@ -12,7 +12,7 @@ export function LimitationsNote() {
         <p className="text-[13px] leading-5 text-muted">
           <strong className="font-medium text-text">This model sees only fielding that ends in a wicket.</strong>{" "}
           Misfields, boundary saves, dropped catches and diving stops are not in the source data. Elite ground
-          fielders rank low — {player} is{" "}
+          fielders rank far below their reputation — {player} is{" "}
           <span className="tabular-nums text-text">
             {ordinal(rank)} of {of}
           </span>

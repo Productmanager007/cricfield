@@ -22,6 +22,8 @@ Phases are ordered by dependency, not by preference or interest. No dates and no
 
 ## Phase 2 — Leaderboard
 
+**Status.** Complete in `d1eaaf2`.
+
 **Delivers.** The route reading `players.json`: 528 qualified fielders with rank, name, role, field time, FRAA and FRAA per 100, sortable by column, searchable by name. Also a persistent limitations note, built as a component and shown on every route that displays a number. The methodology page itself stays in Phase 5; this is the always-visible note that points at what that page will explain.
 
 **Done when.** A row picked at random matches the corresponding row of `ipl_fraa.csv` field for field, and the sort order at load matches the exported `rank` without the page computing it. Sorting by a different column reorders the display and leaves every value unchanged. The limitations note is visible without scrolling on both desktop and a 375px viewport, on every route built so far, and names the concrete evidence: RA Jadeja 105th of 528. It is not a modal, not a tooltip, and not behind a link. At 375px the leaderboard collapses to fewer columns rather than scrolling horizontally.
