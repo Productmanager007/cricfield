@@ -34,6 +34,8 @@ Phases are ordered by dependency, not by preference or interest. No dates and no
 
 ## Phase 3 — Player detail
 
+**Status.** Complete in `433199d`. Season rows sum to the career FRAA to within 0.0007 for all 528 players; the gap is rounding, since seasons export four decimal places and careers three.
+
 **Delivers.** `/player/<slug>`, reading `seasons/<slug>.json`: the player's career line and his season-by-season rows, with non-qualifying seasons visibly marked rather than hidden.
 
 **Done when.** Every player in `players.json` has a reachable page — 528 of 528, no dead links from the leaderboard — and the season rows shown for a player sum to the career FRAA displayed at the top of the same page. Seasons with `qualifies: false` are distinguishable at a glance, and the page states the 240-ball threshold read from `meta.json` rather than hardcoding it.
