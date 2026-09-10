@@ -25,6 +25,16 @@ sample_data/
 # split writes into web-data/seasons/, which web-data/*.json would not match.
 web-data/
 
+# Next.js frontend. public/data/ is copied from web-data/ at build time; the
+# `data/` rule above already matches it, so it is listed here explicitly in
+# case that rule is ever narrowed.
+web/node_modules/
+web/.next/
+web/out/
+web/public/data/
+web/next-env.d.ts
+web/*.tsbuildinfo
+
 # OS / editor
 .DS_Store
 
