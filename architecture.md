@@ -389,7 +389,13 @@ This is what makes a number on a page traceable. A figure shown in the browser c
 
 **If `web-data/` is missing at build time, the build fails loudly and does not produce a site.** A frontend that renders an empty leaderboard when its data is absent is indistinguishable from one whose data is wrong, and the second is far more expensive. This is the same reasoning that makes the commentary scraper a parser rather than a model in §2: a deterministic step with no data should stop, not degrade.
 
-**Derived:** whether `web-data/` is committed, built in CI, or fetched from a release artefact is not settled. It is gitignored today with that decision explicitly deferred, and the choice interacts with §13's unresolved question about vendor redistribution restrictions — Tier 2 data will carry limits on what can be published, and the export is where those limits bite.
+**Settled: CI is the canonical producer of `web-data/`** (`.github/workflows/export.yml`). The workflow runs the exporter on `ubuntu-latest` against a freshly downloaded Cricsheet bundle and publishes the result as a build artefact. A local export remains useful during development; it is not the thing that gets published.
+
+The reason is provenance rather than convenience. A CI job runs on a clean checkout of a pushed commit, so `git rev-parse` returns exactly the commit the code came from and `git status` is empty — `meta.json` records `git_commit` accurately, `git_dirty` false and `git_dirty_known` true, which is the top row of the table above. A local export can promise none of that: it runs against whatever is in the working tree, usually dirty mid-development, on a machine where `git` may not be on PATH at all, in which case the exporter falls back to reading `.git` and lands in the third row. The mismatch documented above — `meta.json` recording `f3e0a79` while `HEAD` was `788685e` — is a local export, and it is exactly the failure CI removes by construction.
+
+Two properties of that workflow are load-bearing. The downloaded bundle is checked for the PK magic number, zip integrity and a plausible entry count before the export runs, because an error page served with a 200 is indistinguishable from a bundle until something looks at the bytes. And the artefact upload deliberately omits `if: always()`: the reconciliation check runs before the files are written, so a failed export still leaves `web-data/` on disk, and uploading it regardless would publish an artefact the job had already judged wrong.
+
+**Derived, still open:** whether the artefact is consumed by the deploy directly, promoted to a release, or committed. Publishing also interacts with §13's unresolved question about vendor redistribution restrictions — Tier 2 data will carry limits on what can be shown publicly, and the export is where those limits bite.
 
 ### Rendering strategy
 
