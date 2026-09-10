@@ -27,8 +27,12 @@ if (!existsSync(root)) {
 createServer((req, res) => {
   let file = path.join(root, decodeURIComponent(new URL(req.url, "http://localhost").pathname));
   if (!file.startsWith(root)) return res.writeHead(403).end();
-  if (existsSync(file) && statSync(file).isDirectory()) file = path.join(file, "index.html");
-  else if (!existsSync(file) && existsSync(`${file}.html`)) file = `${file}.html`;
+  // /provenance is provenance.html. The export also writes a provenance/
+  // directory of RSC payloads beside it, so the .html file is tried first.
+  if (!existsSync(file) || statSync(file).isDirectory()) {
+    if (existsSync(`${file}.html`)) file = `${file}.html`;
+    else file = path.join(file, "index.html");
+  }
   if (!existsSync(file)) return res.writeHead(404).end("not found");
   res.writeHead(200, { "Content-Type": types[path.extname(file)] ?? "application/octet-stream" });
   createReadStream(file).pipe(res);

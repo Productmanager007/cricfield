@@ -6,6 +6,7 @@ export type Meta = {
   deliveries: number;
   season_min: number;
   season_max: number;
+  qualified_fielders: number;
   git_commit: string;
   git_dirty: boolean | null;
   // Absent from exports that predate it, which is read as unknown.
