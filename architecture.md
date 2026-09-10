@@ -321,3 +321,77 @@ From PRD §14, restricted to the questions with architectural consequences:
 
 - How the feature store records *which tier* populated an attribute, given that surfaces must mark reduced capability — §3 above.
 - The decision layer's tooling, which neither document specifies — §10 above.
+
+---
+
+## 14. The web layer
+
+**Nothing in this section is built.** No `web/` directory exists. This describes the design the MVP will follow, and is written in the present tense about that design rather than about the repository as it stands. `scripts/export_web.py` exists and produces the data described below; everything that consumes it does not.
+
+The PRD places the web application in the surfaces layer (PRD §6, §8) and specifies Next.js on Vercel (PRD §12). This section says how that surface attaches to the rest of the system.
+
+### Position and the one-way dependency
+
+`web/` sits downstream of everything in §1's chain, reading the model's output and never its code:
+
+```
+  Model layer  →  Decision layer  →  scripts/export_web.py  →  web-data/  →  web/
+                                        (Python, offline)      (JSON)      (Next.js)
+```
+
+**The frontend never imports Python and never calls it.** The only interface between the two halves of the system is a directory of JSON files with a fixed shape. This is the ingestion rule (PRD §6) applied at the other end of the pipeline: as a new data source is an ingestion problem and never a modelling one, a new view is a frontend problem and never a modelling one. If a page needs a number that is not in the JSON, the fix is a change to the exporter and a re-export, never a calculation in the browser.
+
+**Derived:** the exporter, not the frontend, is the boundary object. The PRD names the web application as a surface and requires precomputed outputs (PRD §9), but does not name an export step; that step is what makes the no-Python rule enforceable rather than aspirational.
+
+### The data contract
+
+What `scripts/export_web.py` actually writes into `web-data/`, as observed on the IPL run:
+
+| File | Contains | Read by |
+|---|---|---|
+| `players.json` | A JSON array of 528 objects, one per qualified fielder: `fielder`, `slug`, `role`, `rank`, `balls_in_field`, `keeper_balls`, `outfield_balls`, `catches`, `run_outs`, `stumpings`, `runs_saved`, `expected_runs_saved`, `fraa`, `fraa_per_100`, `wpa` | Leaderboard; the search index behind player and compare routes |
+| `seasons/<slug>.json` | One file per player, 528 of them. An object with `fielder`, `slug` and `seasons`, the last being that player's rows carrying the career fields plus `season`, `innings_fielded`, `unknown_balls`, `fraa_per_100_raw`, `wpaa` and `qualifies` | Player detail; compare, which reads exactly two of these |
+| `seasons/index.json` | An object mapping display name to slug, 528 entries | Name lookup without loading `players.json` |
+| `meta.json` | Provenance and assumptions — see below | The methodology page, and the footer of every page |
+
+Two properties of that table are load-bearing. The season files are split per player because a comparison view opens two players and not all 528: the split turns a 1.1 MB fetch into about 3.8 KB. And `players.json` deliberately omits `unknown_balls`, which the season files carry, so the two files are not interchangeable — a view needing the unknown-bucket split must read the season file.
+
+**The frontend computes nothing.** Every displayed number is a field read from the JSON as exported. `fraa_per_100` is not derived in the browser from `fraa` and `balls_in_field`; it is read. This follows from the requirement that nothing is fitted at request time and interactive surfaces read stored results (PRD §9, ctx §9), and it extends that rule from fitting to arithmetic: a browser that recomputes a figure has forked the model, and the fork will drift.
+
+Sorting, filtering to a search string, and paging are presentation and belong in the frontend. Anything that changes what a number means does not.
+
+### Provenance
+
+`meta.json` carries the dataset facts (`matches`, `deliveries`, `season_min`, `season_max`), the export identity (`generated_at`, `git_commit`, `git_dirty`, `git_source`), the full `assumptions` object — `CREDIT_SHARE`, `RUN_OUT_PRIMARY_SHARE`, `FIELD_TIME_NORMALISATION`, `FIELDERS_PER_SIDE`, `CATCH_MODAL_MIN`, `CATCH_MODAL_MARGIN`, `SEASON_BASELINE_SHRINKAGE_BALLS`, `regression_balls`, `min_balls`, `season_qualify_balls` — and a `caveats` array.
+
+This is what makes a number on a page traceable. A figure shown in the browser came from a named field, in a named file, produced by a named commit, under a named set of assumptions. That chain satisfies the reproducibility requirement (PRD §9) and the assumption-transparency requirement that credit shares, replacement level, shrinkage strength and phase boundaries are visible in the interface and included in every export (PRD §9, ctx §9). Because the assumptions travel inside the export rather than being written into the page, a page cannot describe a model version it was not built from.
+
+**What breaks when the export and the deploy come from different commits.** The failure is silent, which is what makes it worth designing against. The page renders, every number displays, and the methodology page states assumptions that were not the ones used. Two concrete cases already exist in this repository:
+
+- The current `web-data/meta.json` records `git_commit: f3e0a79`, while `HEAD` is `788685e`. The export ran before the commit that changed the exporter. Nothing about the artefact announces this; only comparing the two reveals it.
+- That same file records `git_dirty: null`, not `false`. `git_commit()` falls back to reading `.git` directly when `git` is not on PATH, and the fallback can recover the commit but cannot tell whether the tree was clean. A null there means the dirty state is unknown, not that the tree was clean, and it must not be rendered as "clean".
+
+**Derived:** the build should therefore compare `meta.json`'s `git_commit` against the commit being deployed and fail when they differ, rather than trusting them to match. The PRD requires reproducibility but does not specify an enforcement point; without one, the requirement holds only by convention.
+
+### The build step
+
+`web-data/` is generated and gitignored, so it is absent from a fresh clone. The build copies it into `web/public/` — the frontend fetches `/players.json` and `/seasons/<slug>.json` as static assets from its own origin, so no CORS configuration and no asset host is involved.
+
+**If `web-data/` is missing at build time, the build fails loudly and does not produce a site.** A frontend that renders an empty leaderboard when its data is absent is indistinguishable from one whose data is wrong, and the second is far more expensive. This is the same reasoning that makes the commentary scraper a parser rather than a model in §2: a deterministic step with no data should stop, not degrade.
+
+**Derived:** whether `web-data/` is committed, built in CI, or fetched from a release artefact is not settled. It is gitignored today with that decision explicitly deferred, and the choice interacts with §13's unresolved question about vendor redistribution restrictions — Tier 2 data will carry limits on what can be published, and the export is where those limits bite.
+
+### Rendering strategy
+
+Static export. The site is a set of prebuilt HTML, JS and JSON assets; the browser fetches JSON and renders. **No API routes, no backend service, no database.**
+
+This is not minimalism for its own sake — it is the architecture the model already forces. All model outputs are precomputed, interactive surfaces read stored results, and nothing is fitted at request time (PRD §9). A system whose data changes only when a Python job is re-run has nothing for a server to do at request time. Adding one would introduce a component that can disagree with the export, and the PRD's latency requirement (sub-second on every view) is met by static assets without further engineering.
+
+The FastAPI backend named in the PRD's tooling (PRD §12) is therefore **not** part of this milestone. It becomes necessary when something must happen per-request — user accounts, saved state, a query too large to ship as a static file — and none of those is in the fielding MVP.
+
+### What is deliberately not in the web layer
+
+- **No model logic.** No credit shares, no baselines, no shrinkage, no role resolution. Those live in `cricfield/fielding.py` and reach the browser only as numbers.
+- **No recomputation.** Not even arithmetic that looks safe. A rate is read, never divided out.
+- **No filtering that changes what a metric means.** Hiding rows below a threshold is presentation; recomputing a rank or a baseline over the filtered subset is modelling. The `qualifies` flag exists precisely so the frontend can hide thin player-seasons without recomputing anything: the exporter sets it at 240 balls, records the threshold in `meta.json`, and exports every row regardless (`scripts/export_web.py`).
+- **No new aggregates.** A page that needs a total, a mean or a rank computes it in the exporter and reads it, or it does not show it.

@@ -1,21 +1,29 @@
 # CONTEXT.md
 
+## 0. Read order
+
+- `MILESTONE.md` — what is being built right now, and what "done" means for it.
+- `PRD.md` — what we are building and why. Holds the roadmap.
+- `architecture.md` — why the code is shaped this way. §14 covers the web layer.
+- `CONTEXT.md` — this file: what is true of the repo right now.
+- `WORKING-NOTES.md` — the long-form distillation of the PRD, cited as `ctx §n`.
+
 ## 1. What this repo is
 
-cricfield is an option-value engine for cricket decisions: it prices the deliveries and shots available at each moment instead of averaging outcomes. The repo holds design documents only — no code has been written.
+cricfield is an option-value engine for cricket decisions: it prices the deliveries and shots available at each moment instead of averaging outcomes. The fielding model is built and runs on real data; the rest is specification.
 
 ## 2. Current state
 
-State as of 2026-09-08.
+State as of 2026-09-10.
 
-- **Runs today:** nothing. No `.py` files, no `cricfield/` package, no dependency manifest.
-- **Present:** `PRD.md`, `architecture.md`, `CONTEXT.md`, `WORKING-NOTES.md`, `README.md`, `.gitignore`, `cricfield/`, `make_sample_data.py`, `sensitivity.py`, `scripts/`.
-- **Referenced but absent:** `PRD.md`, `README.md`, `MILESTONE.md`, `cricfield/*.py`.
-- **Stubbed:** nothing — no scaffolding exists.
-- **Untested:** everything. No test framework, no CI.
-- **Under git** since 2026-09-08, root commit `82136bf`. `git` is *not* on PATH; it lives at `%LOCALAPPDATA%\Programs\Git\cmd\git.exe`.
-- **Data:** none ingested. No Cricsheet download, Parquet store or DuckDB file.
-- M1–M9 are specifications; none is implemented.
+- **Runs today:** the fielding pipeline end to end. `python -m cricfield.cli --data ipl_json.zip --min-balls 900` produces a 528-player leaderboard from 1,243 IPL matches (295,557 deliveries, 2008–2026).
+- **Implemented:** M1 value functions, M2 fielding value, M3 partially (FRAA only, no batting/bowling RAR). M4–M9 are specifications; none is implemented.
+- **Present:** `PRD.md`, `MILESTONE.md`, `architecture.md`, `CONTEXT.md`, `WORKING-NOTES.md`, `README.md`, `cricfield/`, `scripts/`, `make_sample_data.py`, `sensitivity.py`, `baselines/`.
+- **Absent:** `web/` — the web MVP is designed (`architecture.md` §14, `MILESTONE.md`) and not started.
+- **Untested:** everything. No test framework, no CI. The only standing checks are `scripts/data_quality.py` and the reconciliation built into `scripts/export_web.py`.
+- **Under git** since 2026-09-08, root commit `82136bf`, remote `github.com/Productmanager007/cricfield` (private). `git` is *not* on PATH; it lives at `%LOCALAPPDATA%\Programs\Git\cmd\git.exe`, and `python` on PATH is the Microsoft Store stub — the real one is at `%LOCALAPPDATA%\Programs\Python\Python313\python.exe`.
+- **Repo path:** `C:\Users\Amber user\dev\Cricfield`. Moved off OneDrive on 2026-09-09.
+- **Data:** not in the repo. `ipl_json.zip` is fetched from Cricsheet and lives outside it; `web-data/` is generated and gitignored.
 
 ## 3. Settled decisions
 
@@ -36,12 +44,11 @@ State as of 2026-09-08.
 ### Open, unfixed
 
 - **MISINTERPRETATION RISK — the season rate table is not a fielding-standards trend.** `season_bucket_baselines` fits an expected-credit rate per (season, role), and those rates are U-shaped: outfield runs-saved per ball ×1000 goes 7.03 (2008) → 4.10 (2020) → 6.63 (2026). It is tempting, and wrong, to read this as IPL fielding declining then improving. The quantity is *credited dismissal value per ball fielded*, so it moves with how many wickets fell and what each was worth in run-expectancy terms — 2020 was the low-scoring UAE season, 2024 and 2026 were high-scoring, and the rates follow the scoring environment. It says nothing about how well anyone fielded. Answering the fielding-standards question needs chances-created held constant, which is Tier 1. **Do not quote this table as evidence of changing fielding quality**; it is exactly the claim someone will reach for.
-- **The Tier 0 ceiling is now visible in the output.** RA Jadeja ranks 121/533 and SA Yadav 193/533 despite elite ground-fielding reputations. Both are known for boundary saves and direct hits, which Tier 0 cannot observe — `fielding.py` sees only the fraction of fielding that ends in a wicket. This is the ceiling appearing exactly where the README predicts, and it is **the strongest single argument for the Tier 1 commentary layer**.
+- **The Tier 0 ceiling is now visible in the output.** RA Jadeja ranks 105/528 and SA Yadav 161/528 despite elite ground-fielding reputations. Both are known for boundary saves and direct hits, which Tier 0 cannot observe — `fielding.py` sees only the fraction of fielding that ends in a wicket. This is the ceiling appearing exactly where the README predicts, and it is **the strongest single argument for the Tier 1 commentary layer**.
 - FRAA may carry residual team structure: the expected-credit baseline in `fielding.py` assumes chances arrive uniformly per ball in field, so a team with a better attack may hand its fielders unearned credit. Measured by `scripts/diagnose_baseline.py`; unfixed.
 - **Residual 8.3% per-player field-time error in 470 post-2023 innings.** The Impact Player rule means Cricsheet lists 12 names with no marker for which 11 started, so `field_time` scales those innings by `11/len(XI)`. Per-innings player-time is now exactly `11 × balls` (verified across all 2,480 innings), but *within* a scaled innings a player who actually fielded throughout is under-credited by up to 1/12. This is concentrated in exactly the careers that moved most when the normalisation landed — mostly-post-2023 players gained 15.6 ranks on average, pre-2023-only players lost 2.6 — so the residual error and the largest correction sit on the same players. Only Tier 1+ team-sheet data resolves it. Re-measured on the committed code via `scripts/era_effect.py`; the correlations are unchanged from the pre-commit figures (ρ = −0.78 on rank change, +0.85 on rate change), the band means slightly attenuated from +17.8 / −3.4 because bounding step-1 removal cut the maximum rank movement from 102 to 55.
 - Harmeet Singh appears for two franchises in 2013 — most likely a Cricsheet name collision merging two careers, silently. Detected by `scripts/data_quality.py`.
 - No architectural claim is verified by execution beyond M1–M3.
-- **The repo lives inside OneDrive.** A `.git` directory under a syncing folder risks index and object corruption; the repo should move to a non-synced path.
 - Case-insensitive filesystem: `CONTEXT.md` and `context.md` are one path. Never create a name differing only in case.
 - M2 at Tier 0 sees only fielding that ends in a wicket — a ceiling, not a bug.
 - Tier 2–3 data is unsecured, so M4–M7 are unbuildable, not merely unbuilt.
