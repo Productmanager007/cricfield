@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Figure } from "@/components/Figure";
 import { loadPlayers, type Player } from "@/lib/players";
 
 // Every value shown is a field of players.json as exported. Sorting and search
@@ -35,7 +37,10 @@ const COLUMNS: Column[] = [
     width: "",
     render: (p) => (
       <>
-        <span className="font-medium text-text">{p.fielder}</span>
+        {/* No prefetch: 528 links would each fetch a page payload as they scroll into view. */}
+        <Link href={`/player/${p.slug}`} prefetch={false} className="font-medium text-text hover:text-amber hover:underline">
+          {p.fielder}
+        </Link>
         {/* Role rides under the name until its own column appears at lg. */}
         <span className="block text-[11px] leading-4 text-faint lg:hidden">{p.role}</span>
       </>
@@ -164,25 +169,4 @@ export function Leaderboard() {
 
 function compare(x: string | number, y: string | number): number {
   return typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
-}
-
-// Shows the exported number's own digits. Missing trailing zeros are padded
-// invisibly so decimal points line up; nothing is rounded, and a fraction
-// longer than `places` is shown whole.
-function Figure({ value, places = 0, signed = false }: { value: number; places?: number; signed?: boolean }) {
-  const text = String(value);
-  const fraction = text.split(".")[1] ?? "";
-  const pad = places > fraction.length ? `${fraction ? "" : "."}${"0".repeat(places - fraction.length)}` : "";
-  const tone = !signed || value === 0 ? "" : value > 0 ? "text-positive" : "text-negative";
-  return (
-    <span className={tone}>
-      {signed && value > 0 ? "+" : ""}
-      {text}
-      {pad && (
-        <span aria-hidden className="invisible select-none">
-          {pad}
-        </span>
-      )}
-    </span>
-  );
 }

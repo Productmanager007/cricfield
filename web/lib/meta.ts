@@ -7,6 +7,8 @@ export type Meta = {
   season_min: number;
   season_max: number;
   qualified_fielders: number;
+  season_qualify_balls: number;
+  assumptions: { regression_balls: number };
   git_commit: string;
   git_dirty: boolean | null;
   // Absent from exports that predate it, which is read as unknown.
