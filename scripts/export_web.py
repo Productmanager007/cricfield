@@ -126,30 +126,58 @@ def build_slugs(names) -> dict[str, str]:
     return out
 
 
+def _git_candidates() -> list[str]:
+    """
+    Where to look for a git executable.
+
+    PATH first. The extra locations exist because git is genuinely not on PATH
+    on the machine this is developed on, and falling through to the .git reader
+    costs the dirty state, which is the part that matters.
+    """
+    local = Path.home() / "AppData" / "Local" / "Programs" / "Git" / "cmd" / "git.exe"
+    return [
+        "git",
+        str(local),
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files (x86)\Git\cmd\git.exe",
+    ]
+
+
 def git_commit() -> dict:
     """
-    The commit this export was produced from.
+    The commit this export was produced from, and whether the tree was clean.
 
-    Tried via git first, then by reading .git directly, because git is not
-    always on PATH and an export with no provenance is worse than a slow one.
+    Tried via a git executable first, then by reading .git directly, because an
+    export with no provenance is worse than a slow one.
+
+    `dirty_known` matters as much as `dirty`. The .git fallback can recover the
+    commit but cannot tell whether the working tree was modified, so it reports
+    dirty=None. A consumer that reads that null as "clean" would state, on a
+    methodology page, that a number came from an unmodified commit when nobody
+    checked. The boolean makes that distinction impossible to miss.
     """
-    out = {"commit": None, "dirty": None, "source": None}
-    try:
-        sha = subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=15,
-        )
-        if sha.returncode == 0:
-            out["commit"] = sha.stdout.strip()
-            status = subprocess.run(
-                ["git", "-C", str(ROOT), "status", "--porcelain"],
+    out = {"commit": None, "dirty": None, "dirty_known": False, "source": None}
+
+    for exe in _git_candidates():
+        try:
+            sha = subprocess.run(
+                [exe, "-C", str(ROOT), "rev-parse", "HEAD"],
                 capture_output=True, text=True, timeout=15,
             )
-            out["dirty"] = bool(status.stdout.strip())
-            out["source"] = "git"
+            if sha.returncode != 0:
+                continue
+            out["commit"] = sha.stdout.strip()
+            status = subprocess.run(
+                [exe, "-C", str(ROOT), "status", "--porcelain"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if status.returncode == 0:
+                out["dirty"] = bool(status.stdout.strip())
+                out["dirty_known"] = True
+            out["source"] = "git" if exe == "git" else f"git ({exe})"
             return out
-    except (OSError, subprocess.SubprocessError):
-        pass
+        except (OSError, subprocess.SubprocessError):
+            continue
 
     # Fallback: read the ref out of .git ourselves.
     try:
@@ -390,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
         "player_seasons": int(len(seasons)),
         "git_commit": git["commit"],
         "git_dirty": git["dirty"],
+        # null in git_dirty means UNKNOWN, not clean. Check this first.
+        "git_dirty_known": git["dirty_known"],
         "git_source": git["source"],
         "assumptions": {
             "CREDIT_SHARE": dict(fielding.CREDIT_SHARE),
@@ -424,6 +454,34 @@ def main(argv: list[str] | None = None) -> int:
         ],
     }
     meta_path.write_text(json.dumps(meta, indent=2))
+
+    # --- provenance warning ----------------------------------------------
+    # Say it out loud at export time. A commit recorded in a JSON file that
+    # does not describe the code which produced it is a silent failure: the
+    # page renders, every number displays, and the methodology page states a
+    # model version that was never run. The export still succeeds -- a dirty
+    # tree during development is normal and blocking it would be tiresome --
+    # but it does not get to be quiet about it.
+    short = (git["commit"] or "unknown")[:7]
+    if git["commit"] is None:
+        print("\n  ** PROVENANCE: commit UNKNOWN. This export cannot be traced "
+              "to a model version.", file=sys.stderr)
+        print("     Do not publish it. Check that .git is readable.", file=sys.stderr)
+    elif not git["dirty_known"]:
+        print(f"\n  ** PROVENANCE: recorded commit {short}, but the working tree "
+              "state is UNKNOWN.", file=sys.stderr)
+        print(f"     Read via '{git['source']}' -- no git executable was "
+              "found, so uncommitted", file=sys.stderr)
+        print("     changes cannot be detected. git_dirty is null, which means "
+              "unknown, NOT clean.", file=sys.stderr)
+    elif git["dirty"]:
+        print(f"\n  ** PROVENANCE: exported from a DIRTY tree at {short}.",
+              file=sys.stderr)
+        print("     The recorded commit does not describe the files that "
+              "produced this export.", file=sys.stderr)
+        print("     Commit before publishing, then re-run.", file=sys.stderr)
+    else:
+        print(f"\n  provenance: clean tree at {short}", file=sys.stderr)
 
     # --- report --------------------------------------------------------
     per_player = sorted(seasons_dir.glob("*.json"))

@@ -369,7 +369,17 @@ This is what makes a number on a page traceable. A figure shown in the browser c
 **What breaks when the export and the deploy come from different commits.** The failure is silent, which is what makes it worth designing against. The page renders, every number displays, and the methodology page states assumptions that were not the ones used. Two concrete cases already exist in this repository:
 
 - The current `web-data/meta.json` records `git_commit: f3e0a79`, while `HEAD` is `788685e`. The export ran before the commit that changed the exporter. Nothing about the artefact announces this; only comparing the two reveals it.
-- That same file records `git_dirty: null`, not `false`. `git_commit()` falls back to reading `.git` directly when `git` is not on PATH, and the fallback can recover the commit but cannot tell whether the tree was clean. A null there means the dirty state is unknown, not that the tree was clean, and it must not be rendered as "clean".
+- That same file recorded `git_dirty: null`, not `false`. `git_commit()` falls back to reading `.git` directly when no git executable can be found, and the fallback can recover the commit but cannot tell whether the tree was clean. A null there means the dirty state is unknown, not that the tree was clean.
+
+**Three provenance states, and the interface must distinguish them.** `meta.json` carries `git_dirty` alongside `git_dirty_known` precisely so that null cannot be misread:
+
+| `git_dirty_known` | `git_dirty` | Meaning | How the methodology page renders it |
+|---|---|---|---|
+| `true` | `false` | Clean tree; the commit describes the code that ran | the commit, plainly |
+| `true` | `true` | Uncommitted changes; the commit does **not** describe the code that ran | the commit, marked as modified |
+| `false` | `null` | No git executable was found; nobody checked | "unknown", never "clean" |
+
+**A consumer must read `git_dirty_known` before `git_dirty`.** Treating the null as falsy renders the third row as the first, which states on a methodology page that a number came from an unmodified commit when nothing verified that. This is the same class of error as displaying a point estimate without its interval (PRD §4.3): the number is not wrong, the confidence attached to it is invented. The exporter also prints a warning at export time for all three failing cases rather than recording them silently (`scripts/export_web.py`).
 
 **Derived:** the build should therefore compare `meta.json`'s `git_commit` against the commit being deployed and fail when they differ, rather than trusting them to match. The PRD requires reproducibility but does not specify an enforcement point; without one, the requirement holds only by convention.
 
