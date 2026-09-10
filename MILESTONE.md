@@ -12,9 +12,9 @@ Phases are ordered by dependency, not by preference or interest. No dates and no
 
 ## Phase 1 — Static shell and the data pipeline
 
-**Status.** Complete in `6a8a4fb`. The build step copies `web-data/` into `web/public/data/`, served under `/data/` (`architecture.md` §14).
+**Status.** Complete in `6a8a4fb`.
 
-**Delivers.** A Next.js application under `web/` that builds to a static export, and a build step that copies `web-data/` into `web/public/` and fails loudly when it is absent.
+**Delivers.** A Next.js application under `web/` that builds to a static export, and a build step that copies `web-data/` into `web/public/data/`, served under `/data/` (`architecture.md` §14), and fails loudly when it is absent.
 
 **Done when.** `npm run build` succeeds from a clean checkout after `scripts/export_web.py` has run, and the built site serves a page displaying the match count, delivery count, season range and `git_commit` read from `meta.json`. Deleting `web-data/` and rebuilding fails with a message naming the missing directory, rather than producing a site with an empty table.
 

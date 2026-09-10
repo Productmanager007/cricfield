@@ -4,7 +4,7 @@
 
 **Convention.** Anything not stated in either source is marked **Derived** and is a proposal to confirm, not a decision. Nothing here overrides the PRD.
 
-**Owner:** Manu S Nair · **Status:** pre-build — no code exists yet (ctx header)
+**Owner:** Manu S Nair · **Status:** partly built. The fielding model (M1, M2, and M3 as FRAA only), the exporter `scripts/export_web.py` and the web shell (§14, MILESTONE Phase 1) exist; M4–M9 and the remaining web views are specification. What is true of the repo right now lives in `CONTEXT.md` §2.
 
 ---
 
