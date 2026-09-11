@@ -6,7 +6,9 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Leaderboard" },
   { href: "/compare", label: "Compare" },
-  { href: "/provenance", label: "Provenance" },
+  // Provenance is reached from the methodology page, which carries the same
+  // facts; four items do not fit the header at 375px.
+  { href: "/methodology", label: "Methodology" },
 ];
 
 export function Nav() {

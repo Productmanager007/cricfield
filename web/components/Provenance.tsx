@@ -1,19 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dirtyState, loadMeta, type DirtyState, type Meta } from "@/lib/meta";
+import { DIRTY } from "@/lib/dirty";
+import { dirtyState, loadMeta, type Meta } from "@/lib/meta";
 
 // Proves the pipeline end to end: exporter -> web-data/ -> public/data/ ->
 // browser. Every value shown is a field of meta.json as exported.
-
-const DIRTY: Record<DirtyState, { label: string; tone: string }> = {
-  clean: { label: "Tracked files matched this commit", tone: "text-positive" },
-  modified: {
-    label: "Tracked files were modified: this commit does not describe the code that ran",
-    tone: "text-negative",
-  },
-  unknown: { label: "Dirty state unknown: nothing verified the tree was clean", tone: "text-amber" },
-};
 
 export function ProvenanceView() {
   const [meta, setMeta] = useState<Meta | null>(null);

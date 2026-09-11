@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Fragment } from "react";
 import { readLimitationsEvidence } from "@/lib/limitations";
 
@@ -25,14 +26,18 @@ export function LimitationsNote() {
               </span>
             </Fragment>
           ))}
-          .
+          .{" "}
+          {/* On every route, so every page that shows a number links to the methodology. */}
+          <Link href="/methodology" className="whitespace-nowrap text-amber hover:underline">
+            Read the methodology →
+          </Link>
         </p>
       </div>
     </aside>
   );
 }
 
-function ordinal(n: number): string {
+export function ordinal(n: number): string {
   const teen = n % 100 >= 11 && n % 100 <= 13;
   return `${n}${teen ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
 }
