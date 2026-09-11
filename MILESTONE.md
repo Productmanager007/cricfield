@@ -44,6 +44,8 @@ Phases are ordered by dependency, not by preference or interest. No dates and no
 
 ## Phase 4 — Compare
 
+**Status.** Complete in `66807a1`.
+
 **Delivers.** A route showing two players side by side across their common seasons, with one bar chart.
 
 **Done when.** Selecting two players fetches exactly two season files and nothing else, observable in the browser network panel, and the totals shown for each player match their player-detail pages exactly. A player pair with no overlapping seasons renders a stated "no common seasons" result rather than an empty chart. At 375px the compare view stacks the two players rather than truncating either, because most traffic will arrive from a link in a post or a DM, which means a phone.

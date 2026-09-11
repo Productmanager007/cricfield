@@ -4,7 +4,7 @@
   "scripts": {
     "copy-data": "node scripts/copy-data.mjs",
     "dev": "node scripts/copy-data.mjs && next dev",
-    "build": "node scripts/copy-data.mjs && next build",
+    "build": "node scripts/copy-data.mjs && next build && node scripts/flatten-segments.mjs",
     "serve": "node scripts/serve.mjs"
   },
   "dependencies": {
