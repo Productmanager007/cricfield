@@ -25,8 +25,17 @@ from cricfield.fielding import fielding_leaderboard
 from cricfield.parse import load_deliveries, match_outcomes
 from cricfield.value import RunExpectancy, WinProbability
 
-REGIMES: dict[str, dict[str, float]] = {
-    "baseline":        {"caught": 0.30, "stumped": 0.40, "run out": 0.90},
+# The regime every other one is compared against.
+BASELINE = "baseline"
+
+# The shares the regimes vary. Any other dismissal kind keeps whatever
+# fielding.CREDIT_SHARE gives it, in every regime.
+VARIED = ("caught", "stumped", "run out")
+
+# Deliberate perturbations of the model's shares, not copies of them: each one
+# is an argument someone could make about how much of a wicket the fielder
+# earned. These are the judgement calls being tested, so they stay literal.
+ALTERNATIVES: dict[str, dict[str, float]] = {
     "catch-heavy":     {"caught": 0.50, "stumped": 0.50, "run out": 0.90},
     "runout-light":    {"caught": 0.30, "stumped": 0.40, "run out": 0.50},
     "flat":            {"caught": 0.40, "stumped": 0.40, "run out": 0.40},
@@ -34,8 +43,33 @@ REGIMES: dict[str, dict[str, float]] = {
 }
 
 
-# The regime every other one is compared against.
-BASELINE = "baseline"
+def _baseline_shares() -> dict[str, float]:
+    """
+    The model's own shares, read from fielding rather than restated.
+
+    Every correlation below is measured against the baseline, so the baseline
+    has to BE the model. Written out here once, it would go stale the first
+    time CREDIT_SHARE changed, and "correlation with baseline" would quietly
+    mean correlation with the shares the model used to have.
+    """
+    return {kind: fielding.CREDIT_SHARE[kind] for kind in VARIED}
+
+
+REGIMES: dict[str, dict[str, float]] = {BASELINE: _baseline_shares(), **ALTERNATIVES}
+
+
+def _assert_baseline_is_the_model() -> None:
+    """Fail loudly if a refactor ever detaches the baseline from the model."""
+    current = _baseline_shares()
+    if REGIMES[BASELINE] != current:
+        raise ValueError(
+            "sensitivity: the baseline regime has diverged from "
+            f"fielding.CREDIT_SHARE ({REGIMES[BASELINE]} vs {current}). Every "
+            "correlation is measured against the baseline, so publishing this "
+            "would compare the model against shares it does not use. Rebuild "
+            "REGIMES from fielding.CREDIT_SHARE."
+        )
+
 
 # How much of the head of the table is checked for churn.
 TOP_N = 10
@@ -60,6 +94,7 @@ def regime_sensitivity(
     scripts/export_web.py calls this as well, so the figures published in
     meta.json and the ones this script prints cannot drift apart.
     """
+    _assert_baseline_is_the_model()
     boards: dict[str, pd.Series] = {}
     original = dict(fielding.CREDIT_SHARE)
     try:

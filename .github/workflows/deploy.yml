@@ -1,0 +1,123 @@
+# Build the site in CI and hand the finished files to Vercel.
+#
+# CI is where web-data/ already is. The export workflow produces it as an
+# artefact, and it is gitignored, so a Vercel-side build would have nothing to
+# read. Rather than give Vercel a GitHub token and have it fetch an artefact
+# that expires, this job downloads the artefact, builds the static export, and
+# uploads the result with `vercel deploy --prebuilt`. Vercel builds nothing.
+#
+# Two consequences worth knowing. Vercel's own Git integration must stay
+# disconnected for this project: if it builds from a push it will find no
+# web-data/ and the build step will fail by design. And there are no per-PR
+# preview deploys; this workflow deploys main to production.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/deploy.yml"
+  # A fresh export is a fresh set of numbers: publish them.
+  workflow_run:
+    workflows: [export]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    # A failed export publishes no artefact; do not deploy the one before it
+    # as though the run had succeeded.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit check walks history back to the export's commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Download web-data from the newest successful export
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list --workflow=export.yml --status=success --branch=main \
+            --limit=1 --json databaseId --jq '.[0].databaseId')"
+          if [ -z "$run_id" ]; then
+            echo "::error::no successful export run to deploy from."
+            exit 1
+          fi
+          echo "export run: $run_id"
+          gh run download "$run_id" --name web-data --dir web-data
+          test -f web-data/meta.json
+          jq '{git_commit, git_dirty, git_dirty_known, matches, qualified_fielders}' web-data/meta.json
+
+      - name: Check the export describes the commit being deployed
+        # Fails the deploy rather than shipping a page that names a model
+        # version it was not built from.
+        run: node web/scripts/check-export-commit.mjs "$GITHUB_SHA"
+
+      - name: Build the static export
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble the Vercel build output
+        # Build Output API v3: a static directory plus a version marker. Vercel
+        # uploads it as-is, so nothing is built there and nothing there needs
+        # web-data/.
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel/output
+          cp -r web/out .vercel/output/static
+          printf '{"version":3}\n' > .vercel/output/config.json
+
+      - name: Deploy to Vercel
+        id: vercel
+        run: |
+          set -euo pipefail
+          url="$(npx --yes vercel@latest deploy --prebuilt --prod --yes \
+            --token "${{ secrets.VERCEL_TOKEN }}")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "deployed to $url"
+
+      - name: Confirm the deployed site serves the export it was built from
+        run: |
+          set -euo pipefail
+          url="${{ steps.vercel.outputs.url }}"
+          built="$(jq -r .git_commit web-data/meta.json)"
+          served="$(curl -fsS --retry 5 --retry-delay 3 "$url/data/meta.json" | jq -r .git_commit)"
+          echo "built from : $built"
+          echo "served     : $served"
+          if [ "$built" != "$served" ]; then
+            echo "::error::the deployed site serves a different export than this job built."
+            exit 1
+          fi
+          {
+            echo "### Deployed"
+            echo ""
+            echo "- URL: $url"
+            echo "- export commit: \`$built\`"
+            echo "- deployed commit: \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
