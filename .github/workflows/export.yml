@@ -21,6 +21,9 @@ on:
     paths:
       - "cricfield/**"
       - "scripts/export_web.py"
+      # The export publishes sensitivity figures computed from these regimes,
+      # so changing them has to re-export.
+      - "sensitivity.py"
       - "requirements.txt"
 
 # One export at a time. A superseded run has nothing to contribute.
@@ -92,6 +95,7 @@ jobs:
           jq '{generated_at, git_commit, git_dirty, git_dirty_known, git_source,
                matches, deliveries, qualified_fielders, player_seasons,
                reconciled_players}' web-data/meta.json
+          jq '.sensitivity' web-data/meta.json
 
       - name: Upload web-data
         # Deliberately NOT `if: always()`. The reconciliation check runs before

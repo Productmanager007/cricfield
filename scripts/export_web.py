@@ -43,6 +43,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,6 +60,9 @@ from cricfield.fielding import (_innings_roles, credit_dismissals,  # noqa: E402
                                 season_bucket_baselines)
 from cricfield.parse import load_deliveries, match_outcomes  # noqa: E402
 from cricfield.value import RunExpectancy, WinProbability  # noqa: E402
+# The credit regimes and the statistics over them live in sensitivity.py.
+# Imported rather than restated: two copies of five regimes would diverge.
+from sensitivity import BASELINE, REGIMES, TOP_N, regime_sensitivity  # noqa: E402
 
 _INNINGS_KEYS = ["match_id", "innings", "fielding_team"]
 
@@ -388,6 +392,29 @@ def main(argv: list[str] | None = None) -> int:
     recon["d_catches"] = (recon["catches"] - recon["s_catches"]).abs()
     bad = recon[(recon["d_fraa"] > 0.01) | (recon["d_catches"] > 0.5)]
 
+    # --- sensitivity: how much of this ranking is the assumptions? -------
+    # Published in meta.json so the methodology page reads these figures like
+    # every other number, rather than quoting a README that goes stale the
+    # moment the model changes. Run with the same min_balls and
+    # regression_balls as the board above, so the figures describe THIS
+    # leaderboard rather than a differently cut one. It costs one full
+    # leaderboard run per regime; the timing is reported below and recorded.
+    print(f"Re-running under {len(REGIMES)} credit regimes ...", file=sys.stderr)
+    started = time.perf_counter()
+    sens = regime_sensitivity(
+        d,
+        run_model,
+        wp_model,
+        min_balls=a.min_balls,
+        regression_balls=a.regression_balls,
+        top=TOP_N,
+    )
+    sens_seconds = time.perf_counter() - started
+    # Correlating the baseline with itself is 1.0 and says nothing, so the
+    # published range is over the alternatives.
+    alt_rho = [rho for name, rho in sens["spearman"].items() if name != BASELINE]
+    print(f"  {len(REGIMES)} regimes in {sens_seconds:.1f}s", file=sys.stderr)
+
     # --- write ---------------------------------------------------------
     players_path = outdir / "players.json"
     meta_path = outdir / "meta.json"
@@ -457,6 +484,26 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "seasons_qualifying": int(seasons["qualifies"].sum()),
         "reconciled_players": int(len(recon) - len(bad)),
+        "sensitivity": {
+            "source": "sensitivity.regime_sensitivity over sensitivity.REGIMES",
+            "baseline_regime": BASELINE,
+            "min_balls": a.min_balls,
+            "regression_balls": a.regression_balls,
+            "top_n": TOP_N,
+            "regimes": [
+                {
+                    "name": name,
+                    "credit_share": dict(shares),
+                    "spearman": round(sens["spearman"][name], 3),
+                }
+                for name, shares in REGIMES.items()
+            ],
+            "spearman_min": round(min(alt_rho), 3),
+            "spearman_max": round(max(alt_rho), 3),
+            "top_n_held_in_all": len(sens["held"]),
+            "top_n_held": sens["held"],
+            "seconds": round(sens_seconds, 1),
+        },
         "caveats": [
             "Ground fielding is not observed: Cricsheet records dismissals, "
             "not fielding events. Elite ground fielders rank low.",
@@ -550,6 +597,15 @@ def main(argv: list[str] | None = None) -> int:
     q = int(seasons["qualifies"].sum())
     print(f"\n  qualifies=true : {q:,} of {len(seasons):,} ({q/len(seasons):.1%})")
     print("  No rows are filtered. The flag is advisory; the web layer decides.")
+
+    print(f"\n=== sensitivity ({len(REGIMES)} credit regimes, {sens_seconds:.1f}s) ===\n")
+    for name, rho in sens["spearman"].items():
+        marker = "  <- baseline" if name == BASELINE else ""
+        print(f"  {name:<18} rho = {rho:.3f}{marker}")
+    print(f"\n  range over the alternatives : {min(alt_rho):.3f} to {max(alt_rho):.3f}")
+    print(f"  in every regime's top {TOP_N}     : {len(sens['held'])} of {TOP_N}")
+    if sens["held"]:
+        print(f"    {', '.join(sens['held'])}")
     return 1 if len(bad) else 0
 
 

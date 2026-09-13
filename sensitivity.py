@@ -34,12 +34,69 @@ REGIMES: dict[str, dict[str, float]] = {
 }
 
 
+# The regime every other one is compared against.
+BASELINE = "baseline"
+
+# How much of the head of the table is checked for churn.
+TOP_N = 10
+
+
+def regime_sensitivity(
+    deliveries: pd.DataFrame,
+    run_model: RunExpectancy,
+    wp_model: WinProbability | None = None,
+    *,
+    min_balls: int = 600,
+    regression_balls: int = 1200,
+    top: int = TOP_N,
+) -> dict:
+    """
+    Re-run the whole leaderboard under every regime in REGIMES.
+
+    Returns each regime's fraa_per_100 series, its Spearman rank correlation
+    against the baseline regime, its top `top`, and the players who are in the
+    top `top` under all of them.
+
+    scripts/export_web.py calls this as well, so the figures published in
+    meta.json and the ones this script prints cannot drift apart.
+    """
+    boards: dict[str, pd.Series] = {}
+    original = dict(fielding.CREDIT_SHARE)
+    try:
+        for name, shares in REGIMES.items():
+            fielding.CREDIT_SHARE.update(original)
+            fielding.CREDIT_SHARE.update(shares)
+            boards[name] = fielding_leaderboard(
+                deliveries,
+                run_model,
+                wp_model,
+                min_balls=min_balls,
+                regression_balls=regression_balls,
+            ).set_index("fielder")["fraa_per_100"]
+    finally:
+        # Whatever happens, leave the module's shares as they were found.
+        fielding.CREDIT_SHARE.update(original)
+
+    base = boards[BASELINE]
+    spearman: dict[str, float] = {}
+    for name, s in boards.items():
+        joined = pd.concat([base, s], axis=1, keys=["base", "alt"]).dropna()
+        spearman[name] = float(spearmanr(joined["base"], joined["alt"]).statistic)
+
+    tops = {
+        name: s.sort_values(ascending=False).head(top).index.tolist()
+        for name, s in boards.items()
+    }
+    held = sorted(set.intersection(*[set(t) for t in tops.values()]))
+    return {"boards": boards, "spearman": spearman, "tops": tops, "held": held}
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--data", required=True)
     p.add_argument("--match-type", default="T20")
     p.add_argument("--min-balls", type=int, default=600)
-    p.add_argument("--top", type=int, default=10)
+    p.add_argument("--top", type=int, default=TOP_N)
     a = p.parse_args()
 
     deliveries = load_deliveries(a.data, match_type=a.match_type)
@@ -49,36 +106,24 @@ def main() -> None:
     except ValueError:
         wp_model = None
 
-    boards: dict[str, pd.DataFrame] = {}
-    original = dict(fielding.CREDIT_SHARE)
-    for name, shares in REGIMES.items():
-        fielding.CREDIT_SHARE.update(original)
-        fielding.CREDIT_SHARE.update(shares)
-        boards[name] = fielding_leaderboard(
-            deliveries, run_model, wp_model, min_balls=a.min_balls
-        ).set_index("fielder")["fraa_per_100"]
-    fielding.CREDIT_SHARE.update(original)
+    result = regime_sensitivity(
+        deliveries, run_model, wp_model, min_balls=a.min_balls, top=a.top
+    )
 
-    print("\nRank correlation with baseline (Spearman)\n")
-    base = boards["baseline"]
-    for name, s in boards.items():
-        joined = pd.concat([base, s], axis=1, keys=["base", "alt"]).dropna()
-        rho = spearmanr(joined["base"], joined["alt"]).statistic
+    print(f"\nRank correlation with {BASELINE} (Spearman)\n")
+    for name, rho in result["spearman"].items():
         print(f"  {name:<18} rho = {rho:.3f}")
 
     print(f"\nTop {a.top} under each regime\n")
-    top = pd.DataFrame(
-        {name: s.sort_values(ascending=False).head(a.top).index.tolist()
-         for name, s in boards.items()}
-    )
+    top = pd.DataFrame(result["tops"])
     top.index = [f"#{i+1}" for i in range(len(top))]
     with pd.option_context("display.width", 220, "display.max_columns", 20):
         print(top.to_string())
 
-    always = set.intersection(*[set(top[c]) for c in top.columns])
+    always = result["held"]
     print(
         f"\nIn every regime's top {a.top}: "
-        f"{', '.join(sorted(always)) if always else '(nobody -- the ranking is assumption-driven)'}"
+        f"{', '.join(always) if always else '(nobody -- the ranking is assumption-driven)'}"
     )
 
 
