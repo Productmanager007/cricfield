@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 import { ordinal } from "@/components/LimitationsNote";
-import { readMetaAtBuild } from "@/lib/build-meta";
+import { readMetaAtBuild, readSensitivity } from "@/lib/build-meta";
 import { DIRTY } from "@/lib/dirty";
 import { readLimitationsEvidence } from "@/lib/limitations";
 import { dirtyState } from "@/lib/meta";
@@ -37,15 +37,6 @@ const MEANING: Record<string, string> = {
     "Balls in the field a season needs before its rate is read as more than noise. Seasons below it are shown, marked low sample, never dropped.",
 };
 
-// sensitivity.py's regimes. Not in the export: the script is run by hand.
-const REGIMES: [string, string, string, string][] = [
-  ["baseline", "0.30", "0.40", "0.90"],
-  ["catch-heavy", "0.50", "0.50", "0.90"],
-  ["runout-light", "0.30", "0.40", "0.50"],
-  ["flat", "0.40", "0.40", "0.40"],
-  ["bowler-generous", "0.15", "0.25", "0.80"],
-];
-
 const SECTIONS: [string, string][] = [
   ["how", "How FRAA is computed"],
   ["blind", "What it cannot see"],
@@ -57,6 +48,8 @@ const SECTIONS: [string, string][] = [
 
 export default function MethodologyPage() {
   const meta = readMetaAtBuild();
+  const sensitivity = readSensitivity(meta);
+  const shareKeys = Object.keys(sensitivity.regimes[0].credit_share);
   const { evidence, of } = readLimitationsEvidence();
   const dirty = DIRTY[dirtyState(meta)];
   const share = (kind: string) => {
@@ -75,8 +68,8 @@ export default function MethodologyPage() {
       <div className="max-w-3xl">
         <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Methodology</h1>
         <p className="mt-1 text-[14px] leading-6 text-muted">
-          How FRAA is made, what it assumes, where it is blind, and how far the rankings move when the assumptions do. The
-          assumptions, caveats and provenance below are read from the export this site was built from.
+          How FRAA is made, what it assumes, where it is blind, and how far the rankings move when the assumptions do.
+          Every figure below is read from the export this site was built from.
         </p>
         <nav aria-label="On this page" className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
           {SECTIONS.map(([id, label]) => (
@@ -166,46 +159,70 @@ export default function MethodologyPage() {
 
         <Section id="stability" title="How stable the rankings are">
           <p>
-            The credit shares are judgement calls, so the whole model has been re-run under five different sets of them to
-            see how far the order moves.
+            The credit shares are judgement calls, so the export re-runs the whole model under every set of shares below
+            and measures how far the order moves.
           </p>
           <div className="grid gap-px overflow-hidden rounded border border-border bg-border sm:grid-cols-2">
-            <Headline value="0.963–0.989" label="Rank correlation (Spearman) of the whole table with the baseline, across the five regimes" />
-            <Headline value="4 of 10" label="Top-10 names that stay in the top 10 under all five regimes" />
+            <Headline
+              value={`${sensitivity.spearman_min}–${sensitivity.spearman_max}`}
+              label={`Rank correlation (Spearman) of the whole table with the ${sensitivity.baseline_regime} regime, across the alternatives`}
+            />
+            <Headline
+              value={`${sensitivity.top_n_held_in_all} of ${sensitivity.top_n}`}
+              label={`Names in the top ${sensitivity.top_n} that stay in it under every regime`}
+            />
           </div>
           <p>
             <Strong>The head of the table is its least stable part.</Strong> The overall order barely moves, but a top-10
             place rests on a handful of credited wickets, and changing a share reorders them. The top is the part anyone
             reads, so treat a top-10 placing as provisional: quote the band, not the rank.
           </p>
+          <p>
+            Holding in every regime:{" "}
+            {sensitivity.top_n_held.length > 0 ? (
+              <span className="text-text">{sensitivity.top_n_held.join(", ")}.</span>
+            ) : (
+              <span className="text-negative">nobody. The order of the top is entirely assumption-driven.</span>
+            )}
+          </p>
           <table className="w-full border-collapse text-[13px] tabular-nums">
-            <caption className="pb-2 text-left text-[12px] text-faint">Fielder&apos;s share of the wicket&apos;s value in each regime</caption>
+            <caption className="pb-2 text-left text-[12px] text-faint">
+              The fielder&apos;s share of a wicket in each regime, and how that regime&apos;s whole table ranks against the{" "}
+              {sensitivity.baseline_regime}
+            </caption>
             <thead>
               <tr className="text-[11px] uppercase tracking-wider text-muted">
                 <th scope="col" className="py-1.5 pr-2 text-left font-medium">Regime</th>
-                <th scope="col" className="px-2 py-1.5 text-right font-medium">Catch</th>
-                <th scope="col" className="px-2 py-1.5 text-right font-medium">Stumping</th>
-                <th scope="col" className="py-1.5 pl-2 text-right font-medium">Run out</th>
+                {shareKeys.map((kind) => (
+                  <th key={kind} scope="col" className="px-2 py-1.5 text-right font-medium">
+                    {kind}
+                  </th>
+                ))}
+                <th scope="col" className="py-1.5 pl-2 text-right font-medium">Spearman</th>
               </tr>
             </thead>
             <tbody>
-              {REGIMES.map(([name, caught, stumped, runOut]) => (
-                <tr key={name} className="border-t border-border/60">
+              {sensitivity.regimes.map((regime) => (
+                <tr key={regime.name} data-regime={regime.name} className="border-t border-border/60">
                   <th scope="row" className="py-1.5 pr-2 text-left font-mono font-normal text-text">
-                    {name}
+                    {regime.name}
                   </th>
-                  <td className="px-2 py-1.5 text-right">{caught}</td>
-                  <td className="px-2 py-1.5 text-right">{stumped}</td>
-                  <td className="py-1.5 pl-2 text-right">{runOut}</td>
+                  {shareKeys.map((kind) => (
+                    <td key={kind} className="px-2 py-1.5 text-right">
+                      {String(regime.credit_share[kind])}
+                    </td>
+                  ))}
+                  <td className="py-1.5 pl-2 text-right">
+                    {regime.name === sensitivity.baseline_regime ? <span className="text-faint">—</span> : regime.spearman}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p data-sensitivity-source className="text-[12px] leading-5 text-faint">
-            Source: <code className="font-mono">sensitivity.py</code> on the IPL bundle (1,243 matches, 2008–2026), recorded
-            in the README at commit b16bca2 on 2026-09-08. The model code had not changed since that commit as of
-            2026-09-11. Unlike everything below, these figures are not in the export and are not recomputed when it
-            changes.
+            Computed for this export by <code className="font-mono">{sensitivity.source}</code>, over the same data as the
+            leaderboard and on the same terms: min_balls {sensitivity.min_balls}, regression_balls{" "}
+            {sensitivity.regression_balls}. Re-exporting recomputes it.
           </p>
         </Section>
 

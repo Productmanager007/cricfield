@@ -4,7 +4,7 @@
 
 This file describes the milestone in progress and nothing else. It is rewritten when the milestone closes, not appended to. The roadmap lives in `PRD.md`; what is true of the repo right now lives in `CONTEXT.md`; why the code is shaped this way lives in `architecture.md` §14 for the web layer specifically.
 
-**Phase 1 is complete; nothing after it is built.** The model and `scripts/export_web.py` are complete and committed; Phases 2–6 are ahead of the work, not behind it.
+**Phases 1–5 are complete; Phase 6 is not.** The model, `scripts/export_web.py` and the site are complete and committed; only the deploy is ahead of the work.
 
 Phases are ordered by dependency, not by preference or interest. No dates and no estimates: the ordering is the plan.
 
@@ -53,6 +53,8 @@ Phases are ordered by dependency, not by preference or interest. No dates and no
 **Depends on.** Phase 3, which establishes the season-file read path.
 
 ## Phase 5 — Methodology and limitations
+
+**Status.** Complete in `881e949`, at `/methodology`. Every figure on it is read from `meta.json` at build time; the sensitivity figures it quotes were added to the export in `1d81445` so that they cannot go stale either.
 
 **Delivers.** The page that answers "why should I believe any of this", rendering the `assumptions` object and `caveats` array from `meta.json`, and reachable from every page showing a number.
 
